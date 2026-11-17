@@ -90,17 +90,19 @@ Folder layout:
 | `suppliers` | supplier_id, name, categories (list), status, on_time_pct, quality_rating |
 | `plants` | plant, name |
 | `po_history` | po_number, po_date, supplier_id, item_code, quantity, unit_price, plant, delivered_on_time |
-| `contracts` | contract_id, supplier_id, start_date, end_date, value_cap, consumed_value, source (`REGISTER` or `PDF`), pdf_path |
-| `contract_lines` | contract_id, item_code, rate |
-| `policy_versions` | id, version_label, effective_from, status (`DRAFT`, `ACTIVE`, `SUPERSEDED`), document (JSONB), source_text, created_by, approved_by, approved_at |
-| `pr_lines` | pr_no, pr_line, created_at, plant, item_code (raw), description, quantity, uom, est_price, need_by, urgency, requester, batch_id |
-| `runs` | run_id, batch_id, policy_mode, created_at, created_by |
-| `requirements` | group_id, run_id, item_code, plant, requirement_date, total_qty, value, is_emergency |
-| `decisions` | requirement_id, policy_version_id, clause, decision, route, supplier_id, unit_price, suggested_suppliers, contract_id, reference_po, reason, facts (JSONB), status (`PROPOSED`, `APPROVED`, `OVERRIDDEN`) |
-| `orders` | po_id or sourcing_id, type (`PO`, `RFQ`, `RFP`, `CAPEX`, `NEW_ITEM`), supplier_id, plant, route, created_at |
-| `order_lines` | po_id, group_id, unit_price, quantity |
-| `audit_log` | id, who, when, action, entity, before (JSONB), after (JSONB), comment |
-| `contract_consumption` | contract_id, group_id, value, requirement_date (so ceiling use is traceable) |
+| `contracts` | contract_id, supplier_id, supplier_name, start_date, end_date, value_cap, consumed_value, source (`REGISTER` or `PDF`), pdf_filename, warnings |
+| `contract_lines` | contract_id, item_code, description, uom, rate |
+| `policy_versions` | id, version_label, effective_from, status (`DRAFT`, `ACTIVE`, `SUPERSEDED`, `DISCARDED`), document (JSONB), source_text, source_filename, base_version_id, validation, created_by, approved_by, approved_at |
+| `batches` | id, filename, source (`CSV` or `CHAT`), sha256, line_count, uploaded_by, uploaded_at |
+| `pr_lines` | batch_id, row_index, pr_no, pr_line, created_at, plant, item_code (raw), description, quantity, uom, estimated_unit_price, need_by_date, urgency, requester, department |
+| `runs` | id, batch_id, pin_version, as_of, kind (`BATCH`, `CHAT_PREVIEW`, `DRY_RUN`), versions_used, counts, created_by, created_at |
+| `run_rows` | run_id, row_index, the 13 output columns (the export reads these verbatim) |
+| `requirements` | run_id, group_id, item_code, plant, requirement_date, total_qty, value, is_emergency, policy_version_id |
+| `decisions` | requirement_id, kind (`ENGINE` or `OVERRIDE`), overrides_decision_id, decision, route, supplier_id, unit_price, suggested, po_id, contract_id, reason, trace (JSONB), status (`PROPOSED`, `APPROVED`, `OVERRIDDEN`), comment |
+| `orders` | run_id, order_no (`PO-0001`, `PO-OVR-{decision}`, `SRC-0001`), type (`PO` or `SOURCING`), route, supplier_id, plant; unique per run and order_no |
+| `order_lines` | order_id, requirement_id, decision_id, quantity, unit_price, contract_id |
+| `audit_log` | id, who, role, at, action, entity_type, entity_id, before (JSONB), after (JSONB), comment |
+| `contract_consumption` | contract_id, requirement_id, value (qty × contract rate), requirement_date, order_id (written on approval, for display; batch runs never read it) |
 
 ## 6. Policy as data
 
@@ -145,7 +147,7 @@ Folder layout:
 }
 ```
 
-Rules 5.4 to 5.6 follow the same shape, and each rule carries its clause text from the policy PDF. The complete file is `engine/policies/policy_v5_0.json`. New items (1.2) are the first rule. The order of the `rules` list is the rule order; nothing sorts by id. Every number the engine uses is in `parameters`, and the engine code contains none of them (a test tokenizes `engine/` and fails on 200000, 500000, 1000000, 14, 7, 24, 365 or 548).
+Rules 5.4 to 5.6 follow the same shape, and each rule carries its clause text from the policy PDF. The complete file is `engine/policies/policy_v5_0.json`. New items (1.2) are the first rule. The order of the `rules` list is the rule order; nothing sorts by id. Every number the engine uses is in `parameters`, and the engine code contains none of them (a test scans every `engine/**/*.py`, including comments and docstrings, and fails on 200000, 500000, 1000000, 14, 7, 24, 365 or 548; engine comments name policy sections by topic, never by clause number, D69).
 
 ### 6.2 How the engine reads it
 
@@ -154,7 +156,7 @@ Rules 5.4 to 5.6 follow the same shape, and each rule carries its clause text fr
 - **Fact registry (`engine/facts.py`).** A dict of name → one small decorated function, with a type and the parameters it needs. The initial set: item_code, item_type, category, uom, plant, urgency, is_emergency, group_value, total_quantity, line_count, requirement_date, need_by_lead_days, department, contract_exists, contract_usable, contract_remaining_ceiling, bought_from_active_365d, last_po_price, preferred_list_size, top_supplier_on_time_pct, top_supplier_quality, is_new_item, plus value_source and requester. Numbers in names are names only: `bought_from_active_365d` reads its window from `bought_history_days`. Adding a fact is one function. The validator, the LLM prompt, the diff text and the UI all read the registry.
 - **Outcomes are data.** `{decision, route, supplier: {strategy, count}}`. `route` is a free string. Strategies form a small registry: `contract` (contract supplier at contract rate), `preferred_first` (rank-1 eligible preferred supplier at its reference price), `suggest` (count: preferred list, then category top-up by `topup_weights`), `none`. Counts may be `$param`.
 - **Supplier eligibility (5.7).** This is the parameter `eligible_supplier_statuses`, applied in one function to contracts, history, preferred lists, top-up and overrides, with a final output guard. No Blocked or Inactive supplier can appear in a PO or a suggestion.
-- **Validator (`engine/policy_validator.py`).** It rejects, with a JSON path and a clear message: unknown fact, unknown op, unknown strategy, undefined `$param`, schema errors, op/type mismatches, duplicate rule ids, and bad or missing required parameters. It warns about new routes, unusual decisions, weights not summing to 1, unreachable rules and a missing effective date. A policy that fails is never applied.
+- **Validator (`engine/policy_validator.py`).** It rejects, with a JSON path and a clear message: unknown fact, unknown op, unknown strategy, undefined `$param`, a `$param` whose value has the wrong type for its fact (for example `"2.5 lakh"` for a value limit), schema errors, op/type mismatches, duplicate rule ids, and bad or missing required parameters (D70, D71). It warns about new routes, unusual decisions, weights not summing to 1, unreachable rules and a missing effective date. A policy that fails is never applied.
 - **Every decision records** the fired rule's id, clause and text, the policy version, every evaluated fact and condition, the contract or PO relied on, and the ranking table.
 
 ### 6.3 Why this lets amendments work without code
@@ -168,15 +170,15 @@ Rules 5.4 to 5.6 follow the same shape, and each rule carries its clause text fr
 | Change clubbing windows or the consolidation window | Edit `parameters` (`club_created_days`, `club_needby_days`, `consolidation_hours`). |
 | Change ranking weights | Edit `parameters.ranking_weights`. |
 | Change suggestion counts or eligible supplier statuses | Edit `*_suggestion_count` or `eligible_supplier_statuses`. |
-
-Proof tests (`tests/test_policy_changes.py`) edit only the JSON in memory and rerun the sample batch: spot limit to ₹3 lakh, a CHK1 Safety & PPE rule, emergency limit to ₹7.5 lakh, a CHK1-only emergency limit, clubbing window to 7 days, two rules swapped, an unknown fact rejected, and new ranking weights. None needs an engine change.
 | Needs a **fact the engine does not compute yet** | The one honest limit. Facts are a registry, so adding one is a small, isolated code change. The policy screen warns "unknown fact" instead of silently ignoring a condition. |
+
+Proof tests (`tests/test_policy_changes.py`) edit only the JSON in memory and rerun the sample batch: spot limit to ₹3 lakh, a CHK1 Safety & PPE rule, emergency limit to ₹7.5 lakh, a CHK1-only emergency limit, clubbing window to 7 days, two rules swapped, an unknown fact rejected, and new ranking weights. None needs an engine change. Each test asserts the exact set of lines that change (D75).
 
 ### 6.4 Update flow (upload, preview, approve, activate)
 
 1. **Upload** an amendment (PDF, DOCX or text) or **describe** it in chat.
 2. **Read:** the LLM produces a *proposed full policy document* in the JSON schema above, starting from the current active version.
-3. **Validate:** JSON-schema check, unknown facts or routes, overlapping or unreachable rules, missing effective date (the app asks).
+3. **Validate:** the hand-written validator `engine/policy_validator.py` (no JSON-schema library) checks the document shape, unknown facts, ops and strategies, undefined `$param`s, the type of every literal and `$param` value against its fact, the required parameters, and warns about new routes, unreachable rules and a missing effective date (the app asks for it). A draft with errors can be edited but not approved.
 4. **Diff:** a structural diff of old vs new (parameters changed, rules added, removed, moved or edited), then turned into **plain-language bullets**: "Emergency limit rises from ₹5,00,000 to ₹7,50,000", "New rule: for plant CHK1, Safety & PPE items above ₹1,00,000 go to RFQ".
 5. **Impact preview:** a dry run over the latest batch: "37 of 186 lines would change decision". This catches wrong readings before approval.
 6. **Approve:** a Procurement user approves, and the new version is saved as `ACTIVE` with its `effective_from`. The old version becomes `SUPERSEDED` and is never edited.
@@ -193,10 +195,12 @@ The version whose `effective_from` is on or before the **requirement date**, tak
 Pure function: `decide(pr_lines, master_data, contracts, policy) -> decisions`.
 
 ```
-Step 1  Normalise & validate lines      bad rows become NOT_PROCESSED with a reason
-Step 2  Match items                     code first, then text; NEW if nothing fits
-Step 3  Club lines into requirements    sort by (created_at, pr_no, pr_line); join earliest eligible
-Step 4  Choose policy version           by requirement date
+Step 1  Choose policy version per line  latest approved version effective on the line's creation date (or the pin / as_of)
+Step 2  Normalise & validate lines      bad rows become NOT_PROCESSED with a reason (uses that version's urgency values)
+Step 3  Match items                     code first, then text; NEW if nothing fits
+Step 4  Club lines into requirements    sort by (created_at, pr_no, pr_line); join earliest eligible requirement
+                                        of the same version, using that version's windows; a requirement keeps
+                                        the version of its first line
 Step 5  Process requirements in order of requirement date:
           a. find applicable contracts   covers item, date in range, supplier Active
           b. value the requirement       contract rate, else last PO in 365d, else standard price
@@ -204,8 +208,9 @@ Step 5  Process requirements in order of requirement date:
           d. compute facts               value, emergency, bought-in-365d, etc.
           e. walk the rules in order     first match wins
           f. choose supplier / suggestions via the preferred list (section 8)
-          g. if a contract PO: record consumption against the ceiling
-Step 6  Consolidate POs                 same supplier + plant + route, within 24h of the PO's first requirement
+          g. if a contract PO: debit the ceiling by qty × that contract's rate
+Step 6  Consolidate POs                 same supplier + plant + route and same policy version, within
+                                        consolidation_hours of the PO's first requirement
 Step 7  Write one output row per PR line
 ```
 
@@ -264,7 +269,7 @@ One list of **requirements** (not PR lines). Each row shows: item, plant, value,
 - the **why-panel**: the clause, policy version, facts that triggered it, the contract (with remaining ceiling) or the PO relied on, and the preferred-supplier ranking table;
 - one obvious primary button: **Approve** (creates the PO or RFQ/RFP), and a secondary **Override**, which requires a comment.
 
-Every action writes to `audit_log` with who, when, before and after. An override creates a new record linked to the original, and the original decision is kept untouched (policy 8.1).
+Every action writes to `audit_log` with who, when, before and after. An override creates a new PROPOSED decision linked to the original. The original's status becomes OVERRIDDEN, and nothing else on it changes (policy 8.1). Approve acts on the latest decision, so an override can be approved too (order `PO-OVR-…` or `SRC-…`). Approving an engine PO approves every requirement still on that PO; overridden ones are excluded. See D43, D62.
 
 ## 11. API
 
@@ -272,23 +277,30 @@ Every action writes to `audit_log` with who, when, before and after. An override
 |-----------------|---------|
 | `POST /api/process-batch` | Body: PR batch CSV (optional `policy_version`, `as_of`). Returns decisions as JSON (`?format=csv` returns the output CSV). |
 | `GET /api/runs/{id}/export` | Download decisions in the required column format. |
+| `GET /api/health` | DB status, active policy, whether the LLM is enabled (never the key). |
+| `GET /api/runs`, `GET /api/runs/{id}` | Run list and summary. |
 | `POST /api/chat` | Chat turn: returns assistant reply and conversation state. |
-| `POST /api/pr-lines/confirm` | Creates a PR from a confirmed chat. |
+| `POST /api/chat/{session_id}/confirm` | Creates a PR from a confirmed chat and returns the engine decision. |
 | `GET /api/requirements` | Buyer workspace list. |
 | `GET /api/requirements/{id}` | Detail with why-panel. |
-| `POST /api/requirements/{id}/approve` | Creates PO or RFQ/RFP. |
+| `POST /api/requirements/{id}/approve` | Creates the PO or sourcing order for the current decision. |
 | `POST /api/requirements/{id}/override` | Needs `comment`. |
-| `POST /api/policy/upload` | Upload an amendment, returns a draft with diff. |
-| `POST /api/policy/chat-change` | Describe a change in chat, returns a draft with diff. |
-| `POST /api/policy/{id}/approve` | Activate from its effective date. |
-| `GET /api/policy` | List versions. |
+| `GET /api/audit` | Audit rows for an entity. |
+| `GET /api/policy`, `GET /api/policy/{id}` | List versions; one version with validation and diff. |
+| `POST /api/policy/drafts/upload` | Upload an amendment (PDF, DOCX, text), returns a draft with diff. |
+| `POST /api/policy/drafts/from-chat` | Describe a change in chat, returns a draft with diff. |
+| `PUT /api/policy/{id}` | Edit a draft's JSON or effective date directly. |
+| `POST /api/policy/{id}/dry-run` | "N of M lines change" on the latest batch. |
+| `POST /api/policy/{id}/approve`, `POST /api/policy/{id}/discard` | Activate from its effective date; discard a draft. |
 | `GET /api/preferred-suppliers?as_of=` | Preferred lists (JSON, or CSV via `/export`). |
-| `POST /api/contracts` and `POST /api/contracts/extract-pdf` | Add a PDF-only contract (manual or extracted, always with a human confirm step). |
+| `GET /api/contracts`, `POST /api/contracts`, `POST /api/contracts/extract-pdf` | List contracts; add one (manual or extracted from a PDF, always with a human confirm step). |
+| `GET /api/items`, `/api/suppliers`, `/api/plants` | Master data. |
 
 ## 12. Contracts
 
 - Load the register and the lines (as at 31 Oct).
-- Contracts that exist only as PDFs (`RC-2026-031`, `RC-2026-033`) are added through **Extract from PDF**: text is read from the PDF, parsed with regular expressions (contract number, supplier ID, dates, ceiling, schedule table), the LLM is the fallback for layouts the regex misses, and the buyer **confirms** the extracted values before saving. They start with consumed value 0.
+- The two contracts that exist only as PDFs (`RC-2026-031`, `RC-2026-033`) are seeded from `seed/pdf_contracts.json` with consumed value 0, so a fresh start gives the same decisions (D64). Those values were produced by the app's own extractor and checked by hand, and a test asserts the extractor still reproduces them.
+- Further PDF contracts are added through **Extract from PDF**: text is read from the PDF, parsed with regular expressions (contract number, supplier ID, dates, ceiling, schedule table), the LLM is the fallback for fields the regex misses, and the buyer **confirms** the extracted values before saving. They start with consumed value 0.
 - I cross-checked the 10 register contracts against their signed PDFs: supplier, dates and ceiling all match.
 
 ## 13. Testing

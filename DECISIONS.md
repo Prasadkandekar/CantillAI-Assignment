@@ -177,6 +177,7 @@ Data findings quoted here come from checking the kit files (item master, supplie
   - Among contracts that fit, use the **lowest rate** (4.3).
   - A requirement that does **not** end as a contract PO does **not** consume ceiling. A buyer override of a contract PO to something else releases the amount.
   - If **no** contract fits, value at the **lowest applicable contract rate** (3.1a) and continue down the rules.
+- **Amended (design review):** A contract PO debits the contract by `total qty × that contract's rate` (rounded to paise), the same amount the fit test used, never by the requirement value. The valuation ladder is editable (D65), so the requirement value may come from another price source. "An override releases the amount" has a narrow meaning: batch runs never see overrides (D44), so the release only means that an overridden contract PO writes no `contract_consumption` row when anything is approved.
 - **Why:** This reproduces Worked Examples 3 and 4: bearings on `RC-2026-002` have only ₹38,000 left, so the requirement of about ₹2.2 lakh goes to RFQ; hex bolts skip the cheaper `RC-2026-015` (₹12,000 left) and use `RC-2026-013`.
 
 ### D26. Contracts that exist only as PDFs
@@ -280,6 +281,7 @@ Data findings quoted here come from checking the kit files (item master, supplie
 - **Noticed:** The output asks for `group_id` and `po_id` but gives no format. Example POs look like `PO-0011`.
 - **Decided:** `group_id = REQ-0001…`, `po_id = PO-0001…`, both numbered in order of creation time of the first line, so the output is the same every run. Sourcing requests get `SRC-0001…` in the reason or id field, but `po_id` stays blank for them.
 - **Why:** Stable, readable and deterministic IDs help a reviewer compare two runs.
+- **Amended (design review):** The output has no SRC number. `po_id` is blank for sourcing requests, and the reason does not carry one. An `SRC-0001…` number is created only as an order number when a buyer approves a sourcing request (a per-run sequence). Order numbers are unique per run and shown as `R{run}/PO-0001`, because two runs both number from PO-0001.
 
 ---
 
@@ -301,6 +303,7 @@ Data findings quoted here come from checking the kit files (item master, supplie
 ### D43. Overrides and approvals
 - **Decided:** Approve creates the PO (or RFQ/RFP) with a record of who and when. Override needs a written comment and a new target decision, is stored beside the untouched original (policy 8.1), and appears in the audit log. Overriding to a supplier that is Blocked or Inactive is refused.
 - **Why:** Keeps the system's decision and the human's change separately visible, and protects rule 5.7 even from overrides.
+- **Amended (design review):** Statuses are PROPOSED, APPROVED and OVERRIDDEN. An override sets the previous decision's status to OVERRIDDEN, the only field that changes on it, and adds a new PROPOSED decision. Approve acts on the latest decision that is not OVERRIDDEN and is refused (409) only when that decision is already APPROVED, so an override can itself be approved. An approved override to a PO gets order number `PO-OVR-{decision id}`. Overrides carry no contract, so they never draw on a ceiling.
 
 ### D44. Do approved POs feed history?
 - **Noticed:** After a buyer approves a PO, that is a real purchase, but the batch run must stay repeatable.
@@ -386,6 +389,7 @@ These follow the brief's strict policy-as-data rules, which override APPROACH.md
 ### D62. Approving a consolidated PO
 - **Decided:** Approving any requirement on a PO approves the whole PO, and the dialog says how many requirements it covers.
 - **Why:** A PO is one document to one supplier. Partial approval would make PO numbers meaningless.
+- **Amended (design review):** The group covers only requirements whose current decision is still the engine decision carrying that PO number. A requirement that was overridden has left the engine's PO and is approved on its own; the dialog says how many were excluded.
 
 ### D63. Export shows the engine's decisions
 - **Decided:** The run export is always the engine output of that run. Buyer overrides are shown in the workspace and audit log, not in the scored CSV.
@@ -403,9 +407,40 @@ These follow the brief's strict policy-as-data rules, which override APPROACH.md
 
 ### D67. LLM client
 - **Decided:** OpenRouter's OpenAI-compatible endpoint is called through `httpx`, with model `OPENROUTER_MODEL`, JSON mode, temperature 0, a 30 s timeout and one retry. The key comes only from the environment (gitignored `.env`) and is never logged. Any failure falls back to the rule-based path, and tests set `LLM_DISABLED=1`.
+- **Amended (design review):** Run outside Docker, nothing would put the `.env` key into the environment, so the fallback would be used silently. `api/main.py` therefore calls `load_dotenv(override=False)` once (python-dotenv), so real environment variables still win. The engine, services and tests never call it. The startup log, `/api/health` and a UI badge say whether the LLM is enabled and which model is used, never the key.
 
 ### D68. Rounding
 - **Decided:** The requirement value is quantity × unit price, rounded to paise (half-up) before any limit comparison. Rates are kept at 4 decimal places.
+
+### D69. Engine text never cites clause numbers
+- **Noticed:** The brief's grep for 14, 7, 24 and so on would also hit comments such as "see 5.7" or "D7", and a rule-id check based on dotted numbers would flag `Decimal("0.01")`.
+- **Decided:** Comments, docstrings and strings in `engine/**/*.py` name policy sections by topic ("supplier eligibility filter"), never by clause number or decision id. Clause numbers come from the JSON at run time. The literal test checks number tokens and comment/string text. The rule-id test checks for strings equal to the policy file's rule ids or clauses, and for any comparison against `.id`, `.clause`, `["id"]` or `["clause"]`.
+- **Why:** The grep then returns zero hits, as the brief asks, and the tests catch real special cases without false alarms.
+
+### D70. `$param` values are checked like literals
+- **Noticed:** A draft can hold `"chk1_emergency_max_value": "2.5 lakh"`. The parameter exists, so only the evaluator would notice, with a crash.
+- **Decided:** For each condition that references `$name`, the validator resolves the parameter and checks it against the fact's type exactly as it checks a literal (a number that is not a bool, an ISO date, a bool, a string; a list for in/not_in). At load, the value is coerced per condition, the same as a literal.
+- **Why:** The brief says never ignore silently and give a clear message. A crash during a batch is neither.
+
+### D71. The parameter contract
+- **Decided:** The validator holds a rule for every parameter the pipeline reads directly (clubbing keys and windows, history windows, urgency values, ladder, eligible statuses, ranking and top-up weights, tie-break, scales, export count, consolidation keys, decisions and hours). The limits and suggestion counts are not required: they are checked wherever a rule references them, so a policy without an emergency rule need not keep its limit. Any other parameter is allowed, and an unreferenced one gets a warning. A tie-break list without `supplier_id` gets it appended last, with a warning, so the order is always total.
+- **Why:** The coder and the LLM prompt get one exact contract, and plant-only parameters stay possible.
+
+### D72. Rows where no rule fired
+- **Decided:** Route `NOT_PROCESSED` with the reason "No rule in policy vX matched". These rows keep the resolved item, group id, value and policy version, because the lines were clubbed and valued. Decision, PO, supplier, price and suggestions are blank.
+- **Why:** A buyer can see what the requirement was and why it stopped. Rows rejected at input still have only the reason.
+
+### D73. Consolidation stays within one policy version
+- **Decided:** A requirement joins an open PO only if both use the same policy version.
+- **Why:** The window and keys come from the PO's first requirement. Mixing versions would apply one version's window to another version's decision.
+
+### D74. Canonical urgency
+- **Decided:** Urgency is matched case-insensitively, then replaced by the policy's own spelling from `urgency_values` before facts are computed.
+- **Why:** `is_emergency` is then an exact membership test, and the trace shows one spelling.
+
+### D75. Proof tests assert exact change sets
+- **Decided:** Each proof test asserts the exact set of changed lines (a 14, b 4, c none on the sample plus both synthetic lines, d 1 line, the d control 3 lines, d raise 1 synthetic line, e 11, f 2, h 38). Two independent prototypes reproduced these sets. If an implementation detail legitimately shifts a set, the test is updated and the reason is recorded here.
+- **Why:** A lower bound would let a regression that changes extra lines pass.
 
 ---
 
