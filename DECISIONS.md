@@ -25,11 +25,13 @@ Data findings quoted here come from checking the kit files (item master, supplie
 - **Noticed:** Policies have an effective date, but a batch is processed on a different day than the PRs were created. The brief's Run 2 says "reprocess the same batch" after approving an amendment.
 - **Decided:** The version used is the latest one whose `effective_from` is on or before the **requirement date** (the creation date of the requirement's first line). The batch API also accepts an explicit `policy_version` to pin one version for the whole run.
 - **Why:** The policy itself judges contracts and history "as of the requirement date", so a decision should follow the rules in force when the need arose. The pin option avoids surprises when someone wants "everything under v6" for a what-if. The impact preview shows how many lines would change.
+- **Amended (design):** The version is chosen per line from its creation date, and a requirement uses the version of its first line. The clubbing windows come from the policy, so clubbing needs a version before the requirement exists. A line may only join a requirement under the same version, so a requirement never mixes versions. The batch API's `as_of` replaces the per-line date for version selection only. Contract validity and history are still checked at the requirement date (2.3). A pin wins over `as_of`. Selection considers every approved version (ACTIVE and SUPERSEDED); drafts never apply.
 
 ### D2. Time zone and "within N days"
 - **Noticed:** Timestamps have no time zone. The policy says "within 14 calendar days" for creation, "within 7 days either side" for need-by, and "within 24 hours" for consolidation.
 - **Decided:** All times are IST. The 14-day and 7-day tests use **calendar-date differences, inclusive** (day 14 qualifies, day 15 does not). The 24-hour test uses the **exact timestamp difference, inclusive** (up to 24h 00m).
 - **Why:** The policy uses "calendar days" for the first two and "hours" for the third, so I mirrored the unit each time. Inclusive matches how "within" is normally read.
+- **Amended (design):** The numbers are the policy parameters `club_created_days`, `club_needby_days` and `consolidation_hours`. Only the units and the inclusive reading are fixed in code. The strict policy-as-data rule forbids those numbers in engine code.
 
 ### D3. Sample batch has PRs dated after today
 - **Noticed:** 37 lines are timestamped 17 to 20 Nov 2026, later than the date the kit was issued (16 Nov). Contract `RC-2026-033` starts on 20 Nov.
@@ -40,6 +42,7 @@ Data findings quoted here come from checking the kit files (item master, supplie
 - **Noticed:** The policy mixes "below", "≤", and "or more".
 - **Decided:** Exactly ₹2,00,000 is **not** a spot PO (it goes to RFQ); exactly ₹5,00,000 **is** still emergency-eligible; exactly ₹10,00,000 is RFP. Money is compared at paise precision with Decimal, never floats.
 - **Why:** Matches the policy wording and Worked Example 9 ("at or above ₹2 lakh"). Decimal avoids rounding errors at the edges.
+- **Amended (design):** The boundaries live in the policy JSON as the ops of each rule (`lt $spot_max_value`, `lte $emergency_max_value`, `gte $rfp_min_value`), not in code. An amendment can turn "below" into "up to" by changing an op.
 
 ---
 
@@ -91,6 +94,7 @@ Data findings quoted here come from checking the kit files (item master, supplie
   - otherwise: in the **batch**, treat as NEW with a flag "low-confidence match, buyer to verify"; in **chat**, ask the user to choose.
   - Numbers and sizes (6308, 50x100, M12x100) must match exactly. A near miss on a size is not a match.
 - **Why:** I prototyped this on the 39 no-code lines. A simple token match found a perfect match for 36 of them. Three more ("brg 6308 ZZ", "monitor 24\"", "hydraulic pump seal kit (hydrax) (repeat)") only fell short because of note words or spelling ("24 inch", "6308-ZZ", "(repeat)"), which the normalisation step handles. Exactly two have no counterpart in the master ("Drinking water purifier 50 LPH", "Ultrasonic thickness gauge"), which agrees with Worked Example 13. Requiring exact sizes avoids the worst mistake: ordering 6205 bearings when 6308 were asked for.
+- **Amended (design):** The score is `rapidfuzz.fuzz.token_set_ratio`. The thresholds (auto-match 90, margin 8, candidate 60, up to 3 candidates), the abbreviations, phrase synonyms and note phrases live in `engine/data/matching_dictionary.json`, so tuning needs no code change. Every size token in the request must appear exactly in the item. An item with an extra size the request lacks can be offered as a candidate but is never auto-matched.
 
 ### D13. Matching confidence vs inventing items
 - **Noticed:** The brief scores "avoid inventing items".
@@ -193,6 +197,7 @@ Data findings quoted here come from checking the kit files (item master, supplie
 - **Noticed:** Ambiguous: bought by whom, and active when?
 - **Decided:** At least one PO for the item with `po_date` in the 365 days up to and including the requirement date, from a supplier whose **current** status is Active.
 - **Why:** The master has only today's status, so "Active" means the status we have. A Blocked supplier's history does not prove a safe source.
+- **Amended (design):** This is the fact `bought_from_active_365d`. The "365" is only in its name. The window is the parameter `bought_history_days` (365 in v5.0), and "Active" is the parameter `eligible_supplier_statuses`. It is a separate parameter from `price_history_days` (3.1b) so that an amendment can change one window without the other.
 
 ### D29. Services and Capex in the normal rules
 - **Noticed:** 8 items are Services and 5 are Capex. The rules mention Capex only in 5.1.
@@ -203,6 +208,7 @@ Data findings quoted here come from checking the kit files (item master, supplie
 - **Noticed:** 5.3 and 5.4 name the "1st preferred supplier". If the list were somehow empty or all excluded, there is nobody to buy from.
 - **Decided:** This cannot happen if the history test passes, because that test requires an Active supplier with a PO in 365 days (inside the 548-day list window). As a safety net, if it ever did, the engine falls to the next rule and records "no eligible preferred supplier".
 - **Why:** The engine should never emit a PO without a supplier, and never a Blocked one.
+- **Amended (design):** This is now generic (see D51). Any rule whose supplier strategy cannot be fulfilled lets the walk continue to the next rule, and the trace says why. The evaluator has no rule-specific code.
 
 ---
 
@@ -232,6 +238,7 @@ Data findings quoted here come from checking the kit files (item master, supplie
   - **Contract:** a negotiated rate is valuable but not decisive on its own (an expired contract still counts), so a moderate weight.
   - **On-time and quality:** these are supplier-wide, not item-specific, so they are tie-breakers rather than drivers.
 - **Check:** I ran this on the three lists in the Worked Examples as at 1 Nov 2026. It reproduces all three orders: gloves (S029, then S030), cylinders (S023, S022, S024), MIG wire (S009, then S010). Scores for the cylinders were 0.74, 0.57, 0.43, so the order is not a near tie.
+- **Amended (design):** The weights, the 180-day decay (`ranking_recency_decay_days`), the tie-break order (`ranking_tie_break`) and the rating scales (`on_time_pct_scale` 100, `quality_rating_scale` 5) are all policy parameters. The prototype re-check gives gloves 0.869/0.619, cylinders 0.737/0.569/0.434 and MIG wire 0.766/0.605.
 
 ### D33. On-time and quality: which numbers
 - **Noticed:** The PO history has a per-PO `delivered_on_time`, and the supplier master has an overall on-time %.
@@ -247,11 +254,13 @@ Data findings quoted here come from checking the kit files (item master, supplie
 - **Noticed:** Some items have fewer than 3 or 5 preferred suppliers, and one supplier lists two categories (`Electrical Spares;Capital Equipment`).
 - **Decided:** After the preferred list, add other **Active** suppliers whose category list includes the item's category (split on `;`), ordered by `0.5 × on-time + 0.5 × quality` (each scaled 0 to 1), best first. If still short, return fewer rather than stretch to the wrong category. New items get none.
 - **Why:** Follows 6.4. Unrelated suppliers would waste quote effort.
+- **Amended (design):** The 0.5/0.5 weights are the policy parameter `topup_weights`, and the counts 3 and 5 are `rfq_suggestion_count`, `rfp_suggestion_count` and `capex_suggestion_count`, referenced from rule outcomes as `$param`.
 
 ### D36. Blocked and Inactive suppliers: a hard filter, everywhere
 - **Noticed:** 3 Blocked (S004, S008, S011) and 2 Inactive (S031, S034). 58 historical POs are from non-Active suppliers.
 - **Decided:** Status is checked in one place (the supplier-eligibility function) used by contracts, the preferred list, PO selection and suggestions. A test asserts no output ever contains one of them.
 - **Why:** The brief penalises it, and a single check point is harder to bypass by accident.
+- **Amended (design):** The allowed statuses are the policy parameter `eligible_supplier_statuses` (["Active"]), checked by `engine/eligibility.py`. A second guard in the output builder raises an internal error if an ineligible supplier ever reaches a row. It is a bug check and never silently filters.
 
 ---
 
@@ -297,10 +306,106 @@ Data findings quoted here come from checking the kit files (item master, supplie
 - **Noticed:** After a buyer approves a PO, that is a real purchase, but the batch run must stay repeatable.
 - **Decided:** A batch run uses the loaded PO history only. Approved POs are saved with their date and become part of the history for **later** runs, not for the run that created them.
 - **Why:** Run 1 and Run 2 on the same batch must differ only because of the policy, not because earlier output changed the history.
+- **Amended (design):** Batch runs never read approved orders, either for history or for ceilings. Approved orders are kept in `orders` and `contract_consumption` and shown in the workspace and on the contracts screen, but they enter the engine only through a re-import of PO history and the register. Otherwise approving Run 1's decisions before Run 2 would change Run 2 for reasons other than the policy.
 
 ### D45. Output file details
 - **Decided:** One row per PR line, in input order. Clubbed lines repeat the requirement's value, route, supplier and `group_id`. `suggested_supplier_ids` are separated by `;`. `NOT_PROCESSED` rows have route `NOT_PROCESSED`, a reason, and blanks elsewhere. `reason` states the clause, policy version, and contract or PO used, for example `v5.0 §5.2 contract RC-2026-013 (rate 7.06, ceiling left ₹3,12,000)`.
 - **Why:** Matches the required columns and the record-keeping rule (8.1).
+
+---
+
+## K. Policy as data: grammar, engine and lifecycle (added with the design)
+
+These follow the brief's strict policy-as-data rules, which override APPROACH.md where they differ.
+
+### D46. Condition grammar
+- **Noticed:** APPROACH listed the ops eq, ne, lt, lte, gt, gte, in. The brief requires not_in and nesting.
+- **Decided:** A condition is `{fact, op, value}` or `{all: [...]}` / `{any: [...]}`, nested to any depth. The ops are eq, ne, lt, lte, gt, gte, in and not_in. A value is a literal or `"$name"`, which points at `parameters` (`$$` escapes a literal dollar). Rules run in list order, first match wins, with no sorting.
+- **Why:** The brief's grammar. `not_in` is what makes plant-only rules possible (D50).
+
+### D47. New items are a rule, listed first
+- **Decided:** Policy 1.2 is the rule `is_new_item eq true → SOURCING_REQUEST / NEW_ITEM_SOURCING / strategy none`, and it is first in the list. "Never clubbed" is the parameter `club_new_items: false`. "Valued at the estimate" is `new_item_valuation: "requester_estimate"`.
+- **Why:** Nothing about new items is hard-coded, and "always goes to sourcing" holds whatever follows in the list.
+
+### D48. Capex
+- **Decided:** Rule 5.1 is `item_type eq Capex → CAPEX_SOURCING`, with `suggest` and count `$capex_suggestion_count`, and the outcome note "Needs capex approval." It sits after 1.2 and before 5.2.
+
+### D49. Rule 5.7 is a filter, not a rule
+- **Decided:** 5.7 is the parameter `eligible_supplier_statuses`, applied wherever a supplier is chosen or suggested and wherever a contract's applicability is checked (4.1).
+- **Why:** As a first-match rule, any rule above it could still name a Blocked supplier. A filter applies to every outcome.
+
+### D50. Plant-only parameters
+- **Decided:** A plant-specific limit is expressed by inserting a rule with a `plant` condition and its own parameter (for example `chk1_emergency_max_value`) before the generic rule, and adding `plant not_in [CHK1]` to the generic rule. The fallback policy reader and the LLM prompt both produce this pair.
+- **Why:** Without the exclusion, a lower CHK1 limit would be bypassed by the generic rule. With it, raising and lowering both work through JSON alone.
+
+### D51. A rule whose supplier strategy cannot be fulfilled
+- **Decided:** If a rule matches but its strategy finds no supplier (`contract` with no usable contract, `preferred_first` with an empty eligible list), the engine records this in the trace and moves on to the next rule.
+- **Why:** This replaces D30's special case with a generic mechanism, and it never emits a PO without a supplier.
+
+### D52. The trace evaluates every condition
+- **Decided:** `all`/`any` do not short-circuit. Every leaf of every rule checked up to the fired rule is recorded with its fact value, the resolved parameter value and pass/fail.
+- **Why:** The buyer can see why 5.4 did not fire, not only why 5.5 did. Facts are memoised, so the cost is negligible.
+
+### D53. Missing fact values
+- **Decided:** If a fact is null (no last PO, an empty preferred list), the ordering ops are false, `eq null` is true, `in` is false and `not_in` is true.
+- **Why:** A missing number must never satisfy a limit by accident.
+
+### D54. Fact registry and windows
+- **Decided:** `engine/facts.py` maps each name to one decorated function with a declared type and the parameters it needs. Windows are read only from parameters: `price_history_days` (3.1b), `bought_history_days` (5.3/5.4), `preferred_history_days` (6.1). The validator, the LLM prompt, the diff text and the UI fact list all read the registry.
+- **Why:** Adding a fact is one function, as the brief requires.
+
+### D55. What the validator rejects and what it only warns about
+- **Decided:** It rejects unknown facts, ops and strategies, undefined `$param`s, schema errors, op/type mismatches, duplicate rule ids, missing or badly typed required parameters, and bad counts. It warns about decisions outside PO/SOURCING_REQUEST, new route names, weights that do not sum to 1, unreachable duplicate rules, unused parameters and a missing effective date. A draft with errors can be saved and edited but never approved.
+- **Why:** Errors would make the engine guess. Warnings are legitimate but worth a second look.
+
+### D56. Version lifecycle
+- **Decided:** The statuses are DRAFT, ACTIVE, SUPERSEDED, plus DISCARDED for drafts thrown away (kept for audit). On approval, the previous ACTIVE becomes SUPERSEDED but still applies to requirement dates before the new effective date. The effective date must be on or after the current ACTIVE's. Approved documents are immutable, enforced by a DB-layer listener.
+- **Also:** If an amendment's effective date is later than the batch's PR dates, D1 keeps v5.0 for those lines. The policy and batch screens state this count, and the batch screen offers an explicit pin for Run 2.
+- **Why:** Keeps "activate from its effective date" literal while making the blind-test case visible.
+
+### D57. What counts as a "changed line" in the dry run
+- **Decided:** A line counts as changed when its decision, route, supplier, unit price, requirement value or suggestions differ, or when the set of lines in its requirement differs. Renumbered group IDs alone do not count. The preview reports N of M under date-based selection and also the count if the draft were pinned for every line.
+
+### D58. Change summaries are generated from the diff, not by the LLM
+- **Decided:** The plain-language bullets come from deterministic templates over the structural diff.
+- **Why:** The summary the approver reads must describe exactly the JSON that will be activated. An LLM summary could misdescribe it.
+
+### D59. Policy reading without the LLM
+- **Decided:** When OpenRouter is unavailable, a rule-based reader handles the common amendment sentences: limit changes in ₹, lakh or crore; day and hour windows; suggestion counts; plant-only limits; category value rules; ranking weights; effective dates. It lists every sentence it could not express and never guesses. The user can edit the draft JSON directly.
+
+### D60. PO numbers in the worked examples are offset by one
+- **Noticed:** Following the policy, the examples' PO numbers come out one higher (PO-0002 where the example says PO-0001, and so on up to PO-0073 vs PO-0072). The extra PO is the PUN1 servo-drive requirement PR-26-00174 + 00175 (2 Nov 08:10, ₹1,31,675.78, spot PO to S020), which the examples apparently do not count. Nothing in the policy explains this.
+- **Decided:** Follow the policy. The golden tests check PO numbering relative to Example 5, which verifies every consolidation in between, rather than absolute numbers. This is an open item.
+
+### D61. Chat details
+- **Decided:**
+  - "by Friday" or "this Friday" means the next Friday on or after today. "Next Friday" means the Friday of next week (Monday-start). The card always shows the weekday so the user can correct it.
+  - Chat PRs are numbered `CH-26-00001`.
+  - The decision preview runs the engine over the latest uploaded batch plus all chat PRs, so clubbing and ceilings are realistic, and splitting across chat requests is still caught.
+
+### D62. Approving a consolidated PO
+- **Decided:** Approving any requirement on a PO approves the whole PO, and the dialog says how many requirements it covers.
+- **Why:** A PO is one document to one supplier. Partial approval would make PO numbers meaningless.
+
+### D63. Export shows the engine's decisions
+- **Decided:** The run export is always the engine output of that run. Buyer overrides are shown in the workspace and audit log, not in the scored CSV.
+
+### D64. PDF-only contracts in the seed
+- **Decided:** RC-2026-031 and RC-2026-033 are seeded from `seed/pdf_contracts.json` (values extracted by the app's own regex extractor and checked by hand), with consumed value 0. A test asserts the extractor still produces exactly these values. Buyers can add more on the contracts screen.
+- **Why:** A fresh `docker compose up` or a hosted rerun gives the same decisions without a manual step.
+
+### D65. The valuation ladder is data
+- **Decided:** `valuation_ladder: ["contract", "last_po", "standard_price"]` names steps from a small price-source registry, so an amendment can reorder or drop steps.
+
+### D66. .gitignore and the data folders
+- **Noticed:** `.gitignore` lists `contracts`, `master_data` and `pr_batches`, although the kit files in them are tracked. A bare `contracts` pattern also matches any folder of that name anywhere.
+- **Decided:** The kit files stay tracked and the Docker build copies them. No code folder is named `contracts`; the router is `contracts_api.py` and the page is `ContractsPage.jsx`. Recommend anchoring the patterns (`/contracts/pdf-uploads/`, for example) if uploads ever get stored on disk.
+
+### D67. LLM client
+- **Decided:** OpenRouter's OpenAI-compatible endpoint is called through `httpx`, with model `OPENROUTER_MODEL`, JSON mode, temperature 0, a 30 s timeout and one retry. The key comes only from the environment (gitignored `.env`) and is never logged. Any failure falls back to the rule-based path, and tests set `LLM_DISABLED=1`.
+
+### D68. Rounding
+- **Decided:** The requirement value is quantity × unit price, rounded to paise (half-up) before any limit comparison. Rates are kept at 4 decimal places.
 
 ---
 

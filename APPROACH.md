@@ -111,23 +111,27 @@ Folder layout:
   "version": "5.0",
   "effective_from": "2026-04-01",
   "parameters": {
-    "club_created_days": 14,
-    "club_needby_days": 7,
-    "price_history_days": 365,
+    "club_keys": ["item_code", "plant"], "club_created_days": 14, "club_needby_days": 7, "club_new_items": false,
+    "urgency_values": ["Normal", "Emergency"], "emergency_urgency_values": ["Emergency"],
+    "valuation_ladder": ["contract", "last_po", "standard_price"], "new_item_valuation": "requester_estimate",
+    "price_history_days": 365, "bought_history_days": 365,
+    "eligible_supplier_statuses": ["Active"],
+    "emergency_max_value": 500000, "spot_max_value": 200000, "rfp_min_value": 1000000,
+    "capex_suggestion_count": 5, "rfq_suggestion_count": 3, "rfp_suggestion_count": 5,
     "preferred_history_days": 548,
-    "consolidation_hours": 24,
-    "emergency_max_value": 500000,
-    "spot_max_value": 200000,
-    "rfp_min_value": 1000000
-  },
-  "ranking_weights": {
-    "frequency": 0.30, "recency": 0.25, "contract": 0.15,
-    "on_time": 0.15, "quality": 0.15, "recency_decay_days": 180
+    "ranking_weights": {"frequency": 0.30, "recency": 0.25, "contract": 0.15, "on_time": 0.15, "quality": 0.15},
+    "ranking_recency_decay_days": 180, "ranking_tie_break": ["recency", "quality", "supplier_id"],
+    "on_time_pct_scale": 100, "quality_rating_scale": 5, "topup_weights": {"on_time": 0.5, "quality": 0.5},
+    "preferred_export_count": 3,
+    "consolidate_decisions": ["PO"], "consolidation_keys": ["supplier_id", "plant", "route"], "consolidation_hours": 24
   },
   "rules": [
-    { "id": "5.1", "clause": "5.1",
+    { "id": "1.2", "clause": "1.2", "text": "A line that matches no item master item is a new item ...",
+      "when": { "all": [ {"fact": "is_new_item", "op": "eq", "value": true} ] },
+      "outcome": { "decision": "SOURCING_REQUEST", "route": "NEW_ITEM_SOURCING", "supplier": {"strategy": "none"} } },
+    { "id": "5.1", "clause": "5.1", "text": "The item type is Capex ... Needs capex approval.",
       "when": { "all": [ {"fact": "item_type", "op": "eq", "value": "Capex"} ] },
-      "outcome": { "decision": "SOURCING_REQUEST", "route": "CAPEX_SOURCING", "supplier": {"strategy": "suggest", "count": 5} } },
+      "outcome": { "decision": "SOURCING_REQUEST", "route": "CAPEX_SOURCING", "supplier": {"strategy": "suggest", "count": "$capex_suggestion_count"} } },
     { "id": "5.2", "clause": "5.2",
       "when": { "all": [ {"fact": "contract_usable", "op": "eq", "value": true} ] },
       "outcome": { "decision": "PO", "route": "CONTRACT_PO", "supplier": {"strategy": "contract"} } },
@@ -141,13 +145,17 @@ Folder layout:
 }
 ```
 
-(Rules 5.4 to 5.6 follow the same shape.) New items (1.2) and the order of rules are also data: the list order is the rule order.
+Rules 5.4 to 5.6 follow the same shape, and each rule carries its clause text from the policy PDF. The complete file is `engine/policies/policy_v5_0.json`. New items (1.2) are the first rule. The order of the `rules` list is the rule order; nothing sorts by id. Every number the engine uses is in `parameters`, and the engine code contains none of them (a test tokenizes `engine/` and fails on 200000, 500000, 1000000, 14, 7, 24, 365 or 548).
 
 ### 6.2 How the engine reads it
 
-- The engine **computes facts** for each requirement: `item_type`, `category`, `plant`, `group_value`, `is_emergency`, `contract_usable`, `bought_from_active_365d`, `urgency`, `requirement_date`, and so on.
-- A rule is a list of conditions on those facts (`all` / `any`, with `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, `in`). The first rule whose conditions all hold decides the outcome.
-- The outcome names a `route` (free text, so new routes cost nothing) and a **supplier strategy** from a small fixed set: `contract`, `preferred_first`, `suggest` (with a count), `none`.
+- **Condition grammar.** A condition is `{fact, op, value}`, combined with `all` / `any` and nested to any depth. The ops are `eq, ne, lt, lte, gt, gte, in, not_in`. A value is a literal or `"$param_name"`, resolved from `parameters` of the version that applies. Boundaries are ops: spot `lt`, emergency `lte`, RFP `gte`. A null fact never satisfies an ordering op.
+- **Evaluator.** The rules are walked in list order and the first fulfilled match wins. There is no rule-id special case anywhere (a test checks for one). Every condition is evaluated without short-circuit, so the trace shows each fact value, resolved parameter and pass/fail. A rule that matches but whose supplier strategy finds nobody lets the walk continue to the next rule.
+- **Fact registry (`engine/facts.py`).** A dict of name → one small decorated function, with a type and the parameters it needs. The initial set: item_code, item_type, category, uom, plant, urgency, is_emergency, group_value, total_quantity, line_count, requirement_date, need_by_lead_days, department, contract_exists, contract_usable, contract_remaining_ceiling, bought_from_active_365d, last_po_price, preferred_list_size, top_supplier_on_time_pct, top_supplier_quality, is_new_item, plus value_source and requester. Numbers in names are names only: `bought_from_active_365d` reads its window from `bought_history_days`. Adding a fact is one function. The validator, the LLM prompt, the diff text and the UI all read the registry.
+- **Outcomes are data.** `{decision, route, supplier: {strategy, count}}`. `route` is a free string. Strategies form a small registry: `contract` (contract supplier at contract rate), `preferred_first` (rank-1 eligible preferred supplier at its reference price), `suggest` (count: preferred list, then category top-up by `topup_weights`), `none`. Counts may be `$param`.
+- **Supplier eligibility (5.7).** This is the parameter `eligible_supplier_statuses`, applied in one function to contracts, history, preferred lists, top-up and overrides, with a final output guard. No Blocked or Inactive supplier can appear in a PO or a suggestion.
+- **Validator (`engine/policy_validator.py`).** It rejects, with a JSON path and a clear message: unknown fact, unknown op, unknown strategy, undefined `$param`, schema errors, op/type mismatches, duplicate rule ids, and bad or missing required parameters. It warns about new routes, unusual decisions, weights not summing to 1, unreachable rules and a missing effective date. A policy that fails is never applied.
+- **Every decision records** the fired rule's id, clause and text, the policy version, every evaluated fact and condition, the contract or PO relied on, and the ranking table.
 
 ### 6.3 Why this lets amendments work without code
 
@@ -155,10 +163,13 @@ Folder layout:
 |----------------|-------------------|
 | Change a limit (₹2 lakh becomes ₹3 lakh) | Edit a `parameters` value. |
 | Change a category rule ("Safety & PPE goes to RFQ above ₹1 lakh") | Insert a rule with a `category` condition. |
-| Plant-only rule ("CHK1 Emergency limit is ₹3 lakh") | Insert a rule with a `plant` condition. |
+| Plant-only parameter ("CHK1 Emergency limit is ₹2.5 lakh") | Add a parameter `chk1_emergency_max_value`, insert a rule `plant eq CHK1 … group_value lte $chk1_emergency_max_value` before the generic emergency rule, and add `plant not_in ["CHK1"]` to the generic rule so that both raising and lowering work. |
 | Change the order of rules | Reorder the list. |
-| Change clubbing windows or the 24-hour consolidation window | Edit `parameters`. |
-| Change ranking weights | Edit `ranking_weights`. |
+| Change clubbing windows or the consolidation window | Edit `parameters` (`club_created_days`, `club_needby_days`, `consolidation_hours`). |
+| Change ranking weights | Edit `parameters.ranking_weights`. |
+| Change suggestion counts or eligible supplier statuses | Edit `*_suggestion_count` or `eligible_supplier_statuses`. |
+
+Proof tests (`tests/test_policy_changes.py`) edit only the JSON in memory and rerun the sample batch: spot limit to ₹3 lakh, a CHK1 Safety & PPE rule, emergency limit to ₹7.5 lakh, a CHK1-only emergency limit, clubbing window to 7 days, two rules swapped, an unknown fact rejected, and new ranking weights. None needs an engine change.
 | Needs a **fact the engine does not compute yet** | The one honest limit. Facts are a registry, so adding one is a small, isolated code change. The policy screen warns "unknown fact" instead of silently ignoring a condition. |
 
 ### 6.4 Update flow (upload, preview, approve, activate)
@@ -175,7 +186,7 @@ A human always approves. The LLM's reading is a draft.
 
 ### 6.5 Which version applies to a requirement
 
-The version whose `effective_from` is on or before the **requirement date**, taking the latest such version. The caller can also pin a version explicitly (`policy_version`). See Decision D1.
+The version whose `effective_from` is on or before the **requirement date**, taking the latest such version. The caller can also pin a version explicitly (`policy_version`), or give `as_of` to select by that date instead. A requirement uses the version of its first line. Statuses are DRAFT → ACTIVE → SUPERSEDED (plus DISCARDED drafts), and approved versions are immutable. See Decisions D1 and D56.
 
 ## 7. The decision engine
 
