@@ -322,6 +322,9 @@ def _system_prompt(base: dict) -> str:
         f"- outcome = {{decision, route, supplier: {{strategy, count?}}, note?}}; strategies: {', '.join(STRATEGIES)}.\n"
         f"Facts:\n{facts}\n"
         f"parameter_meta (labels of parameters): {json.dumps(base.get('parameter_meta', {}), ensure_ascii=False)}\n"
+        "Every outcome MUST contain decision (only PO or SOURCING_REQUEST), route and supplier {strategy}. "
+        "Never invent other decisions such as NO_PO; if a sentence cannot be expressed this way, do not add a rule "
+        "and list it in 'unsupported'.\n"
         "Plant-only limits: insert a copy of the generic rule with an extra {fact: plant, op: eq, value: P} "
         "condition and its own new parameter before the generic rule, and add {fact: plant, op: not_in, value: [P]} "
         "to the generic rule.\n"
@@ -329,6 +332,29 @@ def _system_prompt(base: dict) -> str:
         "amendment sentence in new rules' text. Set effective_from only if the amendment states a date, else null. "
         "List amendment sentences you could not express in 'unsupported'. Never invent numbers."
     )
+
+
+_RULE_PATH = re.compile(r"^rules\[(\d+)\]\.outcome")
+
+
+def _drop_unexpressible_rules(doc: dict, base: dict) -> list[str]:
+    """Remove NEW rules whose outcome the engine cannot express (e.g. a 'NO_PO' decision without
+    route/supplier) so the draft stays activatable. They are reported as unsupported instead."""
+    base_ids = {r.get("id") for r in base.get("rules", []) if isinstance(r, dict)}
+    bad = set()
+    for e in validate(doc).errors:
+        m = _RULE_PATH.match(e.path or "")
+        if m:
+            bad.add(int(m.group(1)))
+    rules = doc.get("rules", [])
+    dropped = []
+    for i in sorted(bad, reverse=True):
+        rule = rules[i] if i < len(rules) else None
+        if isinstance(rule, dict) and rule.get("id") not in base_ids:
+            dropped.append(f"Not expressible as a rule (needs decision PO/SOURCING_REQUEST, a route and a supplier "
+                           f"strategy): {rule.get('text') or rule.get('id')}")
+            del rules[i]
+    return dropped
 
 
 def read_llm(text: str, base: dict, label: str) -> tuple[dict, str | None, list]:
@@ -348,6 +374,7 @@ def read_llm(text: str, base: dict, label: str) -> tuple[dict, str | None, list]
             out = out2
             doc = out2["policy"]
     unsupported = [str(u) for u in out.get("unsupported") or [] if str(u).strip()]
+    unsupported += _drop_unexpressible_rules(doc, base)
     eff = out.get("effective_from") or doc.get("effective_from")
     if eff == base.get("effective_from"):
         eff = None

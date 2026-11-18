@@ -1,7 +1,17 @@
 import React from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, qs } from "../api.js";
-import { Alert, Field, Modal, NextAction, RouteChip, StatusChip, inr, useAsync } from "../components/ui.jsx";
+import { Alert, Field, Modal, NextAction, RouteChip, StatusChip, inr, useAsync, useErrorToast } from "../components/ui.jsx";
+import AnimatedNumber from "../components/AnimatedNumber.jsx";
+import Badge from "../components/Badge.jsx";
+import Button from "../components/Button.jsx";
+import EmptyState from "../components/EmptyState.jsx";
+import Icon from "../components/Icon.jsx";
+import PageHeader from "../components/PageHeader.jsx";
+import Select from "../components/Select.jsx";
+import { SkeletonCard, SkeletonRows } from "../components/Skeleton.jsx";
+import Tabs from "../components/Tabs.jsx";
+import { useToast } from "../components/Toast.jsx";
 
 const ROUTES = ["", "CONTRACT_PO", "EMERGENCY_PO", "SPOT_PO", "RFQ", "RFP", "CAPEX_SOURCING", "NEW_ITEM_SOURCING", "NOT_PROCESSED"];
 const STATUSES = ["", "PROPOSED", "APPROVED"];
@@ -11,8 +21,8 @@ function Condition({ node, depth = 0 }) {
   for (const kind of ["all", "any"]) {
     if (node[kind]) {
       return (
-        <div className={depth ? "ml-3 border-l border-slate-200 pl-2" : ""}>
-          <span className="text-xs text-slate-500">{kind === "all" ? "all of" : "any of"}</span>
+        <div className={depth ? "ml-3 border-l border-hairline pl-2" : ""}>
+          <span className="text-caption font-normal text-muted">{kind === "all" ? "all of" : "any of"}</span>
           {node[kind].map((c, i) => (
             <Condition key={i} node={c} depth={depth + 1} />
           ))}
@@ -24,12 +34,12 @@ function Condition({ node, depth = 0 }) {
     ? `${node.value} = ${JSON.stringify(node.resolved)}`
     : JSON.stringify(node.resolved);
   return (
-    <div className="flex gap-2 text-xs">
-      <span className={node.passed ? "text-emerald-600" : "text-rose-600"}>{node.passed ? "✓" : "✗"}</span>
+    <div className="flex gap-2 text-caption font-normal">
+      <span className={node.passed ? "text-success" : "text-error"}>{node.passed ? "✓" : "✗"}</span>
       <span className="font-mono">
         {node.fact} {node.op} {val}
       </span>
-      <span className="text-slate-500">(actual: {JSON.stringify(node.actual)})</span>
+      <span className="text-muted">(actual: {JSON.stringify(node.actual)})</span>
     </div>
   );
 }
@@ -37,59 +47,61 @@ function Condition({ node, depth = 0 }) {
 function WhyPanel({ d }) {
   const why = d.why || {};
   return (
-    <div className="space-y-3">
-      <div className="card">
-        <h3 className="h2 mb-1">Why this decision</h3>
+    <div className="stagger space-y-md">
+      <div className="card" style={{ "--i": 0 }}>
+        <h3 className="h2 mb-2">Why this decision</h3>
         {why.fired ? (
-          <p className="text-sm">
-            Policy v{why.policy_version} clause <b>§{why.fired.clause}</b> (rule {why.fired.id}): {why.fired.text}
+          <p className="text-body-sm">
+            Policy <span className="font-mono">v{why.policy_version}</span> clause <b className="font-mono">§{why.fired.clause}</b> (rule <span className="font-mono">{why.fired.id}</span>): {why.fired.text}
           </p>
         ) : (
-          <p className="text-sm">No rule fired.</p>
+          <p className="text-body-sm">No rule fired.</p>
         )}
-        <p className="mt-1 text-xs text-slate-600">{d.original.reason}</p>
+        <p className="mt-1 text-caption font-normal text-muted">{d.original.reason}</p>
         {why.warnings?.length > 0 && <Alert kind="warning">{why.warnings.join("\n")}</Alert>}
       </div>
-      <div className="card">
-        <h3 className="h2 mb-1">Facts</h3>
-        <table className="text-sm">
-          <tbody>
-            {Object.entries(why.facts || {}).map(([k, v]) => (
-              <tr key={k} className="border-t">
-                <td className="td font-mono text-xs">{k}</td>
-                <td className="td">{JSON.stringify(v)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="card" style={{ "--i": 1 }}>
+        <h3 className="h2 mb-2">Facts</h3>
+        <div className="table-wrap">
+          <table className="min-w-full">
+            <tbody>
+              {Object.entries(why.facts || {}).map(([k, v]) => (
+                <tr key={k} className="hover:bg-surface-soft">
+                  <td className="td font-mono text-code">{k}</td>
+                  <td className="td font-mono text-code">{JSON.stringify(v)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-      <div className="card">
-        <h3 className="h2 mb-1">Rules checked (in policy order)</h3>
+      <div className="card" style={{ "--i": 2 }}>
+        <h3 className="h2 mb-2">Rules checked (in policy order)</h3>
         {(why.rules_checked || []).map((r) => (
-          <div key={r.id} className="mb-2">
-            <div className="text-sm">
-              <span className={r.matched && r.fulfilled !== false ? "font-semibold text-emerald-700" : "text-slate-600"}>
-                §{r.clause} ({r.id}) {r.matched ? (r.fulfilled === false ? "matched, strategy not fulfilled" : "fired") : "did not match"}
+          <div key={r.id} className="mb-3">
+            <div className="text-body-sm">
+              <span className={r.matched && r.fulfilled !== false ? "font-medium text-success" : "text-muted"}>
+                <span className="font-mono">§{r.clause} ({r.id})</span> {r.matched ? (r.fulfilled === false ? "matched, strategy not fulfilled" : "fired") : "did not match"}
               </span>
-              {r.note && <span className="ml-1 text-xs text-slate-500">{r.note}</span>}
+              {r.note && <span className="ml-1 text-caption font-normal text-muted">{r.note}</span>}
             </div>
             <Condition node={r.conditions} />
           </div>
         ))}
       </div>
       {(d.contract || why.valuation) && (
-        <div className="card text-sm">
-          <h3 className="h2 mb-1">Contract / price relied on</h3>
+        <div className="card space-y-1 text-body-sm" style={{ "--i": 3 }}>
+          <h3 className="h2 mb-2">Contract / price relied on</h3>
           {d.contract && (
             <p>
-              Contract {d.contract.contract_id} ({d.contract.source}) with {d.contract.supplier_id} {d.contract.supplier_name}, rate{" "}
+              Contract <span className="font-mono">{d.contract.contract_id}</span> ({d.contract.source}) with <span className="font-mono">{d.contract.supplier_id}</span> {d.contract.supplier_name}, rate{" "}
               {d.contract.rate}, valid {d.contract.start_date} to {d.contract.end_date}, ceiling {inr(d.contract.value_cap)}, left before
               this requirement {inr(d.contract.remaining_before)}
             </p>
           )}
           {why.contracts?.skipped?.map((s) => (
-            <p key={s.contract_id} className="text-xs text-slate-600">
-              Skipped {s.contract_id}: {s.reason}
+            <p key={s.contract_id} className="text-caption font-normal text-muted">
+              Skipped <span className="font-mono">{s.contract_id}</span>: {s.reason}
             </p>
           ))}
           {why.valuation && (
@@ -101,7 +113,9 @@ function WhyPanel({ d }) {
           )}
         </div>
       )}
-      <RankingTable ranking={d.ranking} />
+      <div style={{ "--i": 4 }}>
+        <RankingTable ranking={d.ranking} />
+      </div>
     </div>
   );
 }
@@ -110,51 +124,60 @@ export function RankingTable({ ranking, title = "Preferred-supplier ranking" }) 
   if (!ranking?.length) return null;
   const factors = Object.keys(ranking[0].factors);
   return (
-    <div className="card overflow-auto">
-      <h3 className="h2 mb-1">{title}</h3>
-      <table className="min-w-full text-sm">
-        <thead>
-          <tr>
-            <th className="th">#</th>
-            <th className="th">Supplier</th>
-            {factors.map((f) => (
-              <th key={f} className="th">
-                {f}
-              </th>
-            ))}
-            <th className="th">Score</th>
-            <th className="th">Ref price</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ranking.map((r) => (
-            <tr key={r.supplier_id} className="border-t">
-              <td className="td">{r.rank}</td>
-              <td className="td">
-                {r.supplier_id} {r.name}
-              </td>
+    <div className="card transition duration-150 hover:-translate-y-0.5 hover:border-hairline-soft hover:shadow-card">
+      <h3 className="h2 mb-2">{title}</h3>
+      <div className="table-wrap">
+        <table className="min-w-full">
+          <thead>
+            <tr>
+              <th className="th">#</th>
+              <th className="th">Supplier</th>
               {factors.map((f) => (
-                <td key={f} className="td text-xs" title={`raw ${JSON.stringify(r.factors[f].raw)}, scaled ${r.factors[f].scaled} × weight ${r.factors[f].weight}`}>
-                  {Number(r.factors[f].contribution).toFixed(4)}
-                  <span className="block text-slate-400">
-                    {JSON.stringify(r.factors[f].raw)} × {r.factors[f].weight}
+                <th key={f} className="th whitespace-nowrap">
+                  {f}
+                </th>
+              ))}
+              <th className="th">Score</th>
+              <th className="th whitespace-nowrap">Ref price</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ranking.map((r) => (
+              <tr key={r.supplier_id} className="transition-colors duration-100 hover:bg-surface-soft">
+                <td className="td">
+                  {r.rank === 1 ? <Badge tone="coral" className="!px-2">1</Badge> : r.rank}
+                </td>
+                <td className="td whitespace-nowrap">
+                  <span className="font-mono text-code">{r.supplier_id}</span> {r.name}
+                </td>
+                {factors.map((f) => (
+                  <td key={f} className="td text-caption font-normal" title={`raw ${JSON.stringify(r.factors[f].raw)}, scaled ${r.factors[f].scaled} × weight ${r.factors[f].weight}`}>
+                    <span className="font-mono">{Number(r.factors[f].contribution).toFixed(4)}</span>
+                    <span className="block font-mono text-muted-soft">
+                      {JSON.stringify(r.factors[f].raw)} × {r.factors[f].weight}
+                    </span>
+                  </td>
+                ))}
+                <td className="td font-mono font-semibold text-ink">{Number(r.score).toFixed(4)}</td>
+                <td className="td whitespace-nowrap">
+                  <span className="font-mono">{r.reference_price}</span>
+                  <span className="block font-mono text-caption font-normal text-muted-soft">
+                    {r.reference?.source === "po" ? `PO ${r.reference.po_number}` : r.reference?.contract_id}
                   </span>
                 </td>
-              ))}
-              <td className="td font-semibold">{Number(r.score).toFixed(4)}</td>
-              <td className="td">
-                {r.reference_price}
-                <span className="block text-xs text-slate-400">
-                  {r.reference?.source === "po" ? `PO ${r.reference.po_number}` : r.reference?.contract_id}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
+
+const DECISIONS = [
+  { value: "PO", label: "PO" },
+  { value: "SOURCING_REQUEST", label: "SOURCING_REQUEST" },
+];
 
 function OverrideModal({ d, onClose, onDone }) {
   const [form, setForm] = React.useState({
@@ -166,6 +189,7 @@ function OverrideModal({ d, onClose, onDone }) {
     comment: "",
   });
   const { busy, error, run } = useAsync();
+  useErrorToast(error);
   const submit = () =>
     run(async () => {
       await api.post(`/requirements/${d.id}/override`, {
@@ -179,38 +203,44 @@ function OverrideModal({ d, onClose, onDone }) {
       onDone();
     });
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const short = form.comment.trim().length < 3;
   return (
     <Modal title={`Override ${d.group_id}`} onClose={onClose}>
-      <Field label="Decision">
-        <select className="input" value={form.decision} onChange={set("decision")}>
-          <option value="PO">PO</option>
-          <option value="SOURCING_REQUEST">SOURCING_REQUEST</option>
-        </select>
-      </Field>
+      <div className="mb-3">
+        <Select label="Decision" value={form.decision} onChange={(v) => setForm({ ...form, decision: v })} options={DECISIONS} />
+      </div>
       <Field label="Route">
-        <input className="input w-full" value={form.route} onChange={set("route")} />
+        <input className="input font-mono" value={form.route} onChange={set("route")} />
       </Field>
       {form.decision === "PO" ? (
-        <>
+        <div className="grid gap-x-md sm:grid-cols-2">
           <Field label="Supplier ID">
-            <input className="input" value={form.supplier_id} onChange={set("supplier_id")} />
+            <input className="input font-mono" value={form.supplier_id} onChange={set("supplier_id")} />
           </Field>
           <Field label="Unit price">
-            <input className="input" value={form.unit_price} onChange={set("unit_price")} />
+            <input className="input font-mono" value={form.unit_price} onChange={set("unit_price")} />
           </Field>
-        </>
+        </div>
       ) : (
         <Field label="Suggested suppliers (; separated)">
-          <input className="input w-full" value={form.suggested} onChange={set("suggested")} />
+          <input className="input font-mono" value={form.suggested} onChange={set("suggested")} />
         </Field>
       )}
-      <Field label="Comment (required)">
-        <textarea className="input h-20 w-full" value={form.comment} onChange={set("comment")} />
+      <Field
+        label="Comment (required)"
+        hint="Recorded in the audit log."
+        error={form.comment && short ? "Enter at least 3 characters" : ""}
+      >
+        <textarea className={`input h-24 ${form.comment && short ? "input-error" : ""}`} value={form.comment} onChange={set("comment")} />
       </Field>
-      <Alert>{error}</Alert>
-      <button className="btn-primary" disabled={busy || form.comment.trim().length < 3} onClick={submit}>
-        Save override
-      </button>
+      <div className="flex justify-end gap-xs">
+        <Button variant="secondary" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button loading={busy} disabled={short} onClick={submit}>
+          Save override
+        </Button>
+      </div>
     </Modal>
   );
 }
@@ -220,14 +250,19 @@ function Detail({ id, onChanged }) {
   const [tab, setTab] = React.useState("why");
   const [confirming, setConfirming] = React.useState(false);
   const [overriding, setOverriding] = React.useState(false);
-  const [notice, setNotice] = React.useState("");
   const { busy, error, run } = useAsync();
+  const toast = useToast();
   const load = React.useCallback(() => run(async () => setD(await api.get(`/requirements/${id}`))), [id, run]);
   React.useEffect(() => {
-    setNotice("");
     load();
   }, [load]);
-  if (!d) return <Alert>{error}</Alert>;
+  React.useEffect(() => {
+    if (error && d) toast.error(error);
+  }, [error, d, toast]);
+  if (!d) {
+    if (error) return <Alert>{error}</Alert>;
+    return <SkeletonCard />;
+  }
   const eff = d.effective;
   const approved = eff.status === "APPROVED";
   const group = d.po_group;
@@ -235,80 +270,80 @@ function Detail({ id, onChanged }) {
     run(async () => {
       const res = await api.post(`/requirements/${id}/approve`);
       setConfirming(false);
-      setNotice(`Created ${res.display} (${res.type}) covering ${res.requirements.length} requirement(s).`);
+      toast.success(`Created ${res.display} (${res.type}) covering ${res.requirements.length} requirement(s).`);
       await load();
       onChanged();
     });
   return (
-    <div className="space-y-3">
+    <div className="space-y-md animate-fade-up">
       <div className="card">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <h2 className="h1">
-              {d.group_id} <span className="font-mono text-base">{d.item_code}</span> {d.item?.description}
+        <div className="flex flex-wrap items-start justify-between gap-md">
+          <div className="min-w-0">
+            <h2 className="display-sm">
+              <span className="font-mono text-title-lg">{d.group_id}</span> <span className="font-mono text-title-md text-muted">{d.item_code}</span> {d.item?.description}
             </h2>
-            <p className="text-sm text-slate-600">
-              {d.plant} · {d.total_qty} {d.item?.uom} · value {inr(d.value)} · policy v{d.policy_version} · requirement date {d.requirement_date}
+            <p className="mt-1 text-body-sm text-muted">
+              {d.plant} · {d.total_qty} {d.item?.uom} · value {inr(d.value)} · policy <span className="font-mono">v{d.policy_version}</span> · requirement date {d.requirement_date}
               {d.is_emergency && " · EMERGENCY"}
             </p>
           </div>
-          <div className="flex gap-2">
-            <button className="btn-primary" disabled={busy || approved || !eff.decision} onClick={() => setConfirming(true)}>
+          <div className="flex gap-xs">
+            <Button loading={busy} disabled={approved || !eff.decision} onClick={() => setConfirming(true)}>
               Approve
-            </button>
-            <button className="btn-secondary" disabled={busy || approved} onClick={() => setOverriding(true)}>
+            </Button>
+            <Button variant="secondary" disabled={busy || approved} onClick={() => setOverriding(true)}>
               Override
-            </button>
+            </Button>
           </div>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+        <div className="mt-md flex flex-wrap items-center gap-xs text-body-sm">
           <RouteChip route={eff.route} />
           <StatusChip status={eff.status} />
-          {eff.kind === "OVERRIDE" && <span className="text-xs text-amber-700">buyer override: {eff.comment}</span>}
+          {eff.kind === "OVERRIDE" && <Badge tone="amber">buyer override: {eff.comment}</Badge>}
           {eff.supplier_id && (
             <span>
-              {eff.supplier_id} {d.supplier_names[eff.supplier_id]} at {eff.unit_price}
+              <span className="font-mono">{eff.supplier_id}</span> {d.supplier_names[eff.supplier_id]} at {eff.unit_price}
             </span>
           )}
           {eff.suggested?.length > 0 && <span>suggested: {eff.suggested.map((s) => `${s} ${d.supplier_names[s] || ""}`).join(", ")}</span>}
-          {group.display && <span className="text-slate-500">on {group.display}</span>}
-          {d.order && <span className="font-medium text-emerald-700">order {d.order.display}</span>}
+          {group.display && <span className="text-muted">on {group.display}</span>}
+          {d.order && <Badge tone="success" dot>order {d.order.display}</Badge>}
         </div>
-        <Alert kind="success">{notice}</Alert>
-        <Alert>{error}</Alert>
       </div>
-      <div className="flex gap-1">
-        {[["why", "Why"], ["lines", `PR lines (${d.lines.length})`], ["history", "Decisions & audit"]].map(([k, l]) => (
-          <button key={k} className={tab === k ? "btn-primary" : "btn-secondary"} onClick={() => setTab(k)}>
-            {l}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: "why", label: "Why" },
+          { id: "lines", label: "PR lines", count: d.lines.length },
+          { id: "history", label: "Decisions & audit" },
+        ]}
+      />
       {tab === "why" && <WhyPanel d={d} />}
       {tab === "lines" && (
-        <div className="card overflow-auto">
-          <table className="min-w-full text-sm">
+        <div className="table-wrap max-h-[60vh]">
+          <table className="min-w-full">
             <thead>
               <tr>
                 {["PR line", "created", "requester", "dept", "description", "qty", "need by", "urgency"].map((h) => (
-                  <th key={h} className="th">
+                  <th key={h} className="th whitespace-nowrap">
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody>
-              {d.lines.map((l) => (
-                <tr key={l.key} className="border-t">
-                  <td className="td">{l.key}</td>
-                  <td className="td">{l.created_at}</td>
+            <tbody className="stagger">
+              {d.lines.map((l, i) => (
+                <tr key={l.key} style={{ "--i": Math.min(i, 12) }} className="transition-colors duration-100 hover:bg-surface-soft">
+                  <td className="td whitespace-nowrap font-mono text-code">{l.key}</td>
+                  <td className="td whitespace-nowrap">{l.created_at}</td>
                   <td className="td">{l.requester}</td>
                   <td className="td">{l.department}</td>
                   <td className="td">{l.description || l.item_code_raw}</td>
-                  <td className="td">
+                  <td className="td whitespace-nowrap">
                     {l.quantity} {l.uom}
                   </td>
-                  <td className="td">{l.need_by}</td>
+                  <td className="td whitespace-nowrap">{l.need_by}</td>
                   <td className="td">{l.urgency}</td>
                 </tr>
               ))}
@@ -317,31 +352,39 @@ function Detail({ id, onChanged }) {
         </div>
       )}
       {tab === "history" && (
-        <div className="card space-y-2 text-sm">
-          {d.decisions.map((x) => (
-            <div key={x.id} className="border-b pb-1">
-              <StatusChip status={x.status} /> {x.kind} #{x.id}: {x.decision} / {x.route} {x.supplier_id || ""} {x.unit_price || ""}{" "}
-              {x.suggested?.join(";")} — by {x.created_by} {x.comment && `“${x.comment}”`}
-            </div>
-          ))}
-          <h3 className="h2 pt-2">Audit log</h3>
-          {d.audit.length === 0 && <p className="text-slate-500">No actions yet.</p>}
-          {d.audit.map((a) => (
-            <details key={a.id} className="border-b pb-1">
-              <summary>
-                {a.at.replace("T", " ").slice(0, 19)} UTC · {a.who} ({a.role}) · {a.action} {a.comment && `· “${a.comment}”`}
-              </summary>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <pre className="overflow-auto bg-slate-50 p-1">before: {JSON.stringify(a.before, null, 1)}</pre>
-                <pre className="overflow-auto bg-slate-50 p-1">after: {JSON.stringify(a.after, null, 1)}</pre>
+        <div className="card text-body-sm">
+          <div className="stagger divide-y divide-hairline-soft">
+            {d.decisions.map((x, i) => (
+              <div key={x.id} style={{ "--i": Math.min(i, 10) }} className="flex flex-wrap items-center gap-xs py-2">
+                <StatusChip status={x.status} />
+                <span>
+                  {x.kind} <span className="font-mono">#{x.id}</span>: {x.decision} / {x.route} {x.supplier_id || ""} {x.unit_price || ""} {x.suggested?.join(";")}
+                </span>
+                <span className="text-muted">by {x.created_by} {x.comment && `“${x.comment}”`}</span>
               </div>
-            </details>
-          ))}
+            ))}
+          </div>
+          <h3 className="h2 pt-lg">Audit log</h3>
+          {d.audit.length === 0 && <p className="mt-2 text-muted">No actions yet.</p>}
+          <div className="mt-2 divide-y divide-hairline-soft">
+            {d.audit.map((a) => (
+              <details key={a.id} className="group py-2">
+                <summary className="cursor-pointer list-none text-body-sm transition-colors duration-100 hover:text-ink">
+                  <Icon name="chevron-right" size={14} className="mr-1 inline transition-transform duration-150 group-open:rotate-90" />
+                  <span className="font-mono text-code">{a.at.replace("T", " ").slice(0, 19)}</span> UTC · {a.who} ({a.role}) · {a.action} {a.comment && `· “${a.comment}”`}
+                </summary>
+                <div className="mt-2 grid gap-2 text-caption sm:grid-cols-2">
+                  <pre className="overflow-auto rounded-md bg-surface-soft p-2 font-mono font-normal">before: {JSON.stringify(a.before, null, 1)}</pre>
+                  <pre className="overflow-auto rounded-md bg-surface-soft p-2 font-mono font-normal">after: {JSON.stringify(a.after, null, 1)}</pre>
+                </div>
+              </details>
+            ))}
+          </div>
         </div>
       )}
       {confirming && (
         <Modal title="Approve" onClose={() => setConfirming(false)}>
-          <p className="mb-2 text-sm">
+          <p className="mb-md text-body-sm">
             {group.display
               ? `Approves ${group.display} with ${group.members.length} requirement(s).`
               : eff.decision === "PO"
@@ -349,9 +392,14 @@ function Detail({ id, onChanged }) {
                 : `Creates a sourcing request (${eff.route}) for this requirement.`}
             {group.excluded_overridden > 0 && ` ${group.excluded_overridden} overridden requirement(s) are excluded.`}
           </p>
-          <button className="btn-primary" disabled={busy} onClick={approve}>
-            Approve
-          </button>
+          <div className="flex justify-end gap-xs">
+            <Button variant="secondary" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+            <Button loading={busy} onClick={approve}>
+              Approve
+            </Button>
+          </div>
         </Modal>
       )}
       {overriding && (
@@ -360,7 +408,7 @@ function Detail({ id, onChanged }) {
           onClose={() => setOverriding(false)}
           onDone={() => {
             setOverriding(false);
-            setNotice("Override saved. It is now the proposed decision; approve it when ready.");
+            toast.success("Override saved. It is now the proposed decision; approve it when ready.");
             load();
             onChanged();
           }}
@@ -377,6 +425,7 @@ export default function WorkspacePage() {
   const [status, setStatus] = React.useState("");
   const [runs, setRuns] = React.useState([]);
   const { error, run } = useAsync();
+  useErrorToast(error);
   const runId = params.get("run") || "";
   const selected = params.get("req");
 
@@ -399,98 +448,117 @@ export default function WorkspacePage() {
   const reqs = data?.requirements || [];
   const pending = data?.status_counts?.PROPOSED || 0;
 
+  const runOptions = [
+    { value: "", label: "Latest batch run" },
+    ...runs.map((r) => ({
+      value: String(r.run_id),
+      label: `R${r.run_id} ${r.kind} ${r.filename}`,
+      hint: r.created_at.slice(0, 16).replace("T", " "),
+    })),
+  ];
+  const routeOptions = ROUTES.map((r) => ({ value: r, label: r || "All routes" }));
+  const statusOptions = STATUSES.map((s) => ({ value: s, label: s || "All statuses" }));
+
   return (
-    <div>
-      <h1 className="h1 mb-1">Buyer workspace</h1>
+    <div className="page-enter">
+      <PageHeader
+        title="Buyer workspace"
+        subtitle="Review each routed requirement, see why the policy chose it, then approve or override."
+        actions={
+          data && (
+            <span className="badge-pill">
+              <AnimatedNumber value={pending} /> awaiting approval
+            </span>
+          )
+        }
+      />
       <NextAction>
         {selected ? "Review the why-panel, then Approve (or Override with a comment)." : `${pending} requirement(s) waiting for approval. Pick one to review.`}
       </NextAction>
-      <div className="mb-3 flex flex-wrap items-end gap-3">
-        <Field label="Run">
-          <select
-            className="input"
+      <div className="mb-md grid items-end gap-x-md sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-3">
+          <Select
+            label="Run"
             value={runId}
-            onChange={(e) => {
+            onChange={(v) => {
               const next = new URLSearchParams();
-              if (e.target.value) next.set("run", e.target.value);
+              if (v) next.set("run", v);
               setParams(next);
             }}
-          >
-            <option value="">Latest batch run</option>
-            {runs.map((r) => (
-              <option key={r.run_id} value={r.run_id}>
-                R{r.run_id} {r.kind} {r.filename} ({r.created_at.slice(0, 16).replace("T", " ")})
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Route">
-          <select className="input" value={route} onChange={(e) => setRoute(e.target.value)}>
-            {ROUTES.map((r) => (
-              <option key={r} value={r}>
-                {r || "All routes"}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Status">
-          <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s || "All statuses"}
-              </option>
-            ))}
-          </select>
-        </Field>
+            options={runOptions}
+          />
+        </div>
+        <div className="mb-3">
+          <Select label="Route" value={route} onChange={setRoute} options={routeOptions} />
+        </div>
+        <div className="mb-3">
+          <Select label="Status" value={status} onChange={setStatus} options={statusOptions} />
+        </div>
         {data?.run && (
-          <span className="pb-2 text-sm text-slate-500">
-            R{data.run.run_id} · {data.run.filename} · {reqs.length} requirements shown
+          <span className="mb-3 pb-2 text-body-sm text-muted">
+            <span className="font-mono">R{data.run.run_id}</span> · {data.run.filename} · {reqs.length} requirements shown
           </span>
         )}
       </div>
-      <Alert>{error}</Alert>
       {data && !data.run && <Alert kind="info">No runs yet. Upload a batch or raise a request in chat first.</Alert>}
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,26rem)_1fr]">
-        <div className="card max-h-[75vh] overflow-auto p-0">
-          <table className="min-w-full">
-            <thead className="sticky top-0 bg-slate-50">
-              <tr>
-                <th className="th">Req</th>
-                <th className="th">Item / plant</th>
-                <th className="th">Value</th>
-                <th className="th">Route</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reqs.map((r) => (
-                <tr
-                  key={r.id}
-                  onClick={() => select(r.id)}
-                  className={`cursor-pointer border-t hover:bg-indigo-50 ${String(r.id) === selected ? "bg-indigo-100" : ""}`}
-                >
-                  <td className="td">
-                    {r.group_id}
-                    <span className="block text-xs text-slate-500">{r.line_count} line(s)</span>
-                  </td>
-                  <td className="td">
-                    {r.item_code} {r.item_description}
-                    <span className="block text-xs text-slate-500">
-                      {r.plant} · {r.effective.supplier_id || r.effective.suggested.join(";")}
-                    </span>
-                  </td>
-                  <td className="td whitespace-nowrap">{inr(r.value)}</td>
-                  <td className="td">
-                    <RouteChip route={r.effective.route} />
-                    <div className="mt-0.5">
-                      <StatusChip status={r.effective.status} />
-                    </div>
-                  </td>
+      <div className="grid gap-md lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+        <div className="table-wrap max-h-[75vh] self-start">
+          {data === null ? (
+            <div className="p-lg">
+              <SkeletonRows rows={6} cols={3} />
+            </div>
+          ) : reqs.length === 0 ? (
+            <EmptyState glyph="inbox" title="Nothing to review" body="No requirements match this run and filters." />
+          ) : (
+            <table className="min-w-full">
+              <thead>
+                <tr>
+                  <th className="th">Req</th>
+                  <th className="th">Item / plant</th>
+                  <th className="th">Value</th>
+                  <th className="th">Route</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="stagger">
+                {reqs.map((r, i) => (
+                  <tr
+                    key={r.id}
+                    style={{ "--i": Math.min(i, 12) }}
+                    onClick={() => select(r.id)}
+                    className={`cursor-pointer transition-colors duration-100 hover:bg-surface-soft ${String(r.id) === selected ? "bg-surface-card" : ""}`}
+                  >
+                    <td className="td">
+                      <span className="font-mono text-code text-ink">{r.group_id}</span>
+                      <span className="block text-caption font-normal text-muted">{r.line_count} line(s)</span>
+                    </td>
+                    <td className="td">
+                      <span className="font-mono text-code">{r.item_code}</span> {r.item_description}
+                      <span className="block font-mono text-caption font-normal text-muted">
+                        {r.plant} · {r.effective.supplier_id || r.effective.suggested.join(";")}
+                      </span>
+                    </td>
+                    <td className="td whitespace-nowrap">{inr(r.value)}</td>
+                    <td className="td">
+                      <RouteChip route={r.effective.route} />
+                      <div className="mt-1">
+                        <StatusChip status={r.effective.status} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
-        <div>{selected ? <Detail key={selected} id={selected} onChanged={load} /> : <p className="text-sm text-slate-500">Select a requirement.</p>}</div>
+        <div>
+          {selected ? (
+            <Detail key={selected} id={selected} onChanged={load} />
+          ) : (
+            <div className="card">
+              <EmptyState glyph="chevron-left" title="Select a requirement" body="Pick one from the list to see the why-panel, PR lines and audit trail." />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

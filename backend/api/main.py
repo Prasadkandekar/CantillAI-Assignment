@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from api.deps import get_db  # noqa: E402
-from api.routers import batch, chat, contracts_api, master, policy, suppliers, workspace  # noqa: E402
+from api.routers import auth, batch, chat, contracts_api, master, policy, suppliers, workspace  # noqa: E402
 from db.models import ImmutablePolicyError  # noqa: E402
 from services import llm  # noqa: E402
 from services.engine_adapter import active_version  # noqa: E402
@@ -43,7 +43,7 @@ origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:5
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["*"],
                    allow_headers=["*"], expose_headers=["Content-Disposition"])
 
-for r in (batch, chat, contracts_api, master, policy, suppliers, workspace):
+for r in (auth, batch, chat, contracts_api, master, policy, suppliers, workspace):
     app.include_router(r.router)
 
 

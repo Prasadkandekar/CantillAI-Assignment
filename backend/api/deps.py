@@ -41,6 +41,17 @@ def current_user(x_user: str | None = Header(default=None), x_role: str | None =
     return User(name, _role(x_role), (x_department or "").strip()[:128])
 
 
+def chat_owner(authorization: str | None = Header(default=None), x_user: str | None = Header(default=None)) -> str:
+    """Owner key for saved chats: the bearer token's email when present (401 if invalid), else X-User."""
+    if authorization:
+        from api.routers import auth  # local import: auth imports ROLES from this module
+        return auth._claims(authorization)["sub"]
+    name = (x_user or "").strip()
+    if not name or len(name) > MAX_USER_LEN:
+        raise HTTPException(400, "X-User header required")
+    return name
+
+
 def optional_user(x_user: str | None = Header(default=None), x_role: str | None = Header(default=None),
                   x_department: str | None = Header(default=None)) -> User:
     """For the scripted batch API: callers without headers are recorded as 'api'."""

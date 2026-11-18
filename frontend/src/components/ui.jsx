@@ -1,18 +1,24 @@
 import React from "react";
+import Badge from "./Badge.jsx";
+import Icon from "./Icon.jsx";
+import { useToast } from "./Toast.jsx";
+
+const ALERT = {
+  error: { cls: "border-error/40 bg-error/10 text-error", icon: "alert" },
+  info: { cls: "border-hairline bg-surface-soft text-body", icon: "info" },
+  success: { cls: "border-success/40 bg-success/10 text-body-strong", icon: "check" },
+  warning: { cls: "border-warning/40 bg-warning/10 text-body-strong", icon: "alert" },
+};
 
 export function Alert({ kind = "error", children, onClose }) {
   if (!children) return null;
-  const color = {
-    error: "border-rose-300 bg-rose-50 text-rose-800",
-    info: "border-sky-300 bg-sky-50 text-sky-800",
-    success: "border-emerald-300 bg-emerald-50 text-emerald-800",
-    warning: "border-amber-300 bg-amber-50 text-amber-800",
-  }[kind];
+  const a = ALERT[kind] || ALERT.error;
   return (
-    <div className={`my-2 whitespace-pre-wrap rounded-md border px-3 py-2 text-sm ${color}`} role="alert">
-      {children}
+    <div className={`my-2 flex items-start gap-2 whitespace-pre-wrap rounded-md border px-3 py-2 text-body-sm animate-fade-in ${a.cls}`} role="alert">
+      <Icon name={a.icon} size={16} className="mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1">{children}</div>
       {onClose && (
-        <button className="float-right text-xs underline" onClick={onClose}>
+        <button className="text-caption underline" onClick={onClose}>
           dismiss
         </button>
       )}
@@ -20,39 +26,44 @@ export function Alert({ kind = "error", children, onClose }) {
   );
 }
 
-const ROUTE_COLORS = {
-  SPOT_PO: "bg-emerald-100 text-emerald-800",
-  CONTRACT_PO: "bg-teal-100 text-teal-800",
-  EMERGENCY_PO: "bg-orange-100 text-orange-800",
-  RFQ: "bg-sky-100 text-sky-800",
-  RFP: "bg-indigo-100 text-indigo-800",
-  CAPEX_SOURCING: "bg-purple-100 text-purple-800",
-  NEW_ITEM_SOURCING: "bg-fuchsia-100 text-fuchsia-800",
-  NOT_PROCESSED: "bg-rose-100 text-rose-800",
+const ROUTE_TONE = {
+  SPOT_PO: "success",
+  CONTRACT_PO: "teal",
+  EMERGENCY_PO: "amber",
+  RFQ: "neutral",
+  RFP: "warning",
+  CAPEX_SOURCING: "dark",
+  NEW_ITEM_SOURCING: "coral",
+  NOT_PROCESSED: "error",
 };
 
 export function RouteChip({ route, count }) {
   if (!route) return null;
-  const color = ROUTE_COLORS[route] || "bg-slate-100 text-slate-700";
   return (
-    <span className={`inline-block whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium ${color}`}>
+    <Badge tone={ROUTE_TONE[route] || "neutral"} className="font-mono !text-[12px]">
       {route}
-      {count !== undefined && <span className="ml-1 font-bold">{count}</span>}
-    </span>
+      {count !== undefined && <span className="ml-1 font-semibold">{count}</span>}
+    </Badge>
   );
 }
 
+const STATUS_TONE = {
+  PROPOSED: "amber",
+  APPROVED: "success",
+  OVERRIDDEN: "neutral",
+  ACTIVE: "success",
+  SUPERSEDED: "neutral",
+  DRAFT: "warning",
+  DISCARDED: "neutral",
+};
+
 export function StatusChip({ status }) {
-  const color = {
-    PROPOSED: "bg-amber-100 text-amber-800",
-    APPROVED: "bg-emerald-100 text-emerald-800",
-    OVERRIDDEN: "bg-slate-200 text-slate-600",
-    ACTIVE: "bg-emerald-100 text-emerald-800",
-    SUPERSEDED: "bg-slate-200 text-slate-600",
-    DRAFT: "bg-amber-100 text-amber-800",
-    DISCARDED: "bg-slate-100 text-slate-400 line-through",
-  }[status] || "bg-slate-100 text-slate-700";
-  return <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${color}`}>{status}</span>;
+  if (!status) return null;
+  return (
+    <Badge tone={STATUS_TONE[status] || "neutral"} dot className={status === "DISCARDED" ? "line-through opacity-70" : ""}>
+      {status}
+    </Badge>
+  );
 }
 
 export function inr(value) {
@@ -63,13 +74,18 @@ export function inr(value) {
 }
 
 export function Modal({ title, children, onClose }) {
+  React.useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <div className="card max-h-[90vh] w-full max-w-lg overflow-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-3 flex items-center justify-between">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-ink/40 p-4 animate-fade-in" onClick={onClose}>
+      <div className="card max-h-[90vh] w-full max-w-lg overflow-auto shadow-pop animate-scale-in" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-md flex items-center justify-between gap-md">
           <h2 className="h2">{title}</h2>
-          <button className="text-slate-500 hover:text-slate-800" onClick={onClose} aria-label="close">
-            ✕
+          <button className="btn-icon-ghost" onClick={onClose} aria-label="Close">
+            <Icon name="close" size={16} />
           </button>
         </div>
         {children}
@@ -78,18 +94,27 @@ export function Modal({ title, children, onClose }) {
   );
 }
 
-export function Field({ label, children, hint }) {
+// Label + control + helper text or validation message. Pass `error` (string) to show the error state.
+export function Field({ label, children, hint, error, className = "mb-3" }) {
   return (
-    <label className="mb-2 block text-sm">
-      <span className="mb-0.5 block font-medium text-slate-600">{label}</span>
+    <label className={`block ${className}`}>
+      <span className="label">{label}</span>
       {children}
-      {hint && <span className="block text-xs text-slate-500">{hint}</span>}
+      {error ? <span className="field-error">{error}</span> : hint ? <span className="mt-1 block text-caption font-normal text-muted">{hint}</span> : null}
     </label>
   );
 }
 
 export function NextAction({ children }) {
-  return <p className="mb-3 text-sm text-slate-600">{children}</p>;
+  return <p className="mb-md text-body-sm text-muted">{children}</p>;
+}
+
+// Shows an action error as a toast whenever it changes to a non-empty message.
+export function useErrorToast(error) {
+  const toast = useToast();
+  React.useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
 }
 
 export function useAsync() {
@@ -109,3 +134,4 @@ export function useAsync() {
   }, []);
   return { busy, error, setError, run };
 }
+

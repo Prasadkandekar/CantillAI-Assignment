@@ -2,6 +2,20 @@
 const BASE = (import.meta.env.VITE_API_BASE || "/api").replace(/\/$/, "");
 const USER_KEY = "corvo_user";
 const DEFAULT_USER = { name: "A. Buyer", role: "buyer", department: "Maintenance" };
+const SESSION_KEY = "corvo_session";
+
+export function getToken() {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY) || "null")?.token || "";
+  } catch {
+    return "";
+  }
+}
+
+let unauthorizedHandler = null;
+export function onUnauthorized(fn) {
+  unauthorizedHandler = fn;
+}
 
 export function getUser() {
   try {
@@ -37,7 +51,14 @@ export function formatDetail(detail) {
 
 function headers(extra = {}) {
   const u = getUser();
-  return { "X-User": u.name, "X-Role": u.role, "X-Department": u.department || "", ...extra };
+  const token = getToken();
+  return {
+    "X-User": u.name,
+    "X-Role": u.role,
+    "X-Department": u.department || "",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...extra,
+  };
 }
 
 async function request(path, { method = "GET", json, form, raw = false } = {}) {
@@ -52,6 +73,7 @@ async function request(path, { method = "GET", json, form, raw = false } = {}) {
     } catch {
       /* not JSON */
     }
+    if (res.status === 401 && !path.startsWith("/auth/login") && unauthorizedHandler) unauthorizedHandler();
     throw new ApiError(res.status, detail);
   }
   return raw ? res : res.json();
@@ -61,7 +83,12 @@ export const api = {
   get: (path) => request(path),
   post: (path, json) => request(path, { method: "POST", json: json ?? {} }),
   put: (path, json) => request(path, { method: "PUT", json }),
+  patch: (path, json) => request(path, { method: "PATCH", json }),
+  del: (path) => request(path, { method: "DELETE" }),
   upload: (path, form) => request(path, { method: "POST", form }),
+  login: (email, password, role) => request("/auth/login", { method: "POST", json: { email, password, ...(role ? { role } : {}) } }),
+  me: () => request("/auth/me"),
+  switchRole: (role) => request("/auth/role", { method: "POST", json: { role } }),
   async download(path, filename) {
     const res = await request(path, { raw: true });
     const blob = await res.blob();

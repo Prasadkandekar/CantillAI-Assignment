@@ -1,49 +1,69 @@
 import React from "react";
 import { api } from "../api.js";
-import { Alert, Field, NextAction, RouteChip, StatusChip, useAsync } from "../components/ui.jsx";
+import { Alert, Field, NextAction, RouteChip, StatusChip, useAsync, useErrorToast } from "../components/ui.jsx";
+import AnimatedNumber from "../components/AnimatedNumber.jsx";
+import Button from "../components/Button.jsx";
+import EmptyState from "../components/EmptyState.jsx";
+import Icon from "../components/Icon.jsx";
+import PageHeader from "../components/PageHeader.jsx";
+import { SkeletonRows } from "../components/Skeleton.jsx";
+import StatusDot from "../components/StatusDot.jsx";
+import Tabs from "../components/Tabs.jsx";
+import { useToast } from "../components/Toast.jsx";
 
 function NewDraft({ onCreated }) {
   const [file, setFile] = React.useState(null);
   const [message, setMessage] = React.useState("");
   const [eff, setEff] = React.useState("");
   const { busy, error, run } = useAsync();
+  const toast = useToast();
+  useErrorToast(error);
+  const created = (d) => {
+    toast.success(`Draft v${d.version_label} created.`);
+    onCreated(d);
+  };
   const upload = () =>
     run(async () => {
       const form = new FormData();
       form.append("file", file);
       if (eff) form.append("effective_from", eff);
-      onCreated(await api.upload("/policy/drafts/upload", form));
+      created(await api.upload("/policy/drafts/upload", form));
     });
   const fromChat = () =>
-    run(async () => onCreated(await api.post("/policy/drafts/from-chat", { message, effective_from: eff || null })));
+    run(async () => created(await api.post("/policy/drafts/from-chat", { message, effective_from: eff || null })));
   return (
     <div className="card">
-      <h2 className="h2 mb-2">New amendment draft</h2>
-      <div className="flex flex-wrap items-end gap-3">
-        <Field label="Amendment document (PDF, DOCX, TXT)">
-          <input type="file" accept=".pdf,.docx,.txt,.md" onChange={(e) => setFile(e.target.files[0] || null)} />
-        </Field>
-        <Field label="Effective from (if not in the document)">
+      <h2 className="h2 mb-md">New amendment draft</h2>
+      <div className="grid items-start gap-x-md md:grid-cols-2">
+        <div>
+          <span className="label">Amendment document (PDF, DOCX, TXT)</span>
+          <label className="flex h-10 cursor-pointer items-center gap-2 rounded-md border border-hairline bg-canvas px-[14px] text-body-sm transition-colors duration-150 hover:border-primary hover:bg-surface-soft focus-within:border-primary focus-within:ring-[3px] focus-within:ring-primary/15">
+            <Icon name="upload" size={16} className="shrink-0 text-primary" />
+            <span className={`truncate ${file ? "font-mono text-code text-ink" : "text-muted-soft"}`}>{file ? file.name : "Choose a file"}</span>
+            <input type="file" className="sr-only" accept=".pdf,.docx,.txt,.md" onChange={(e) => setFile(e.target.files[0] || null)} />
+          </label>
+          <span className="mb-3 mt-1 block text-caption font-normal text-muted">The reader extracts the changed rules into a draft.</span>
+        </div>
+        <Field label="Effective from (if not in the document)" hint="Leave empty to use the date in the document.">
           <input type="date" className="input" value={eff} onChange={(e) => setEff(e.target.value)} />
         </Field>
-        <button className="btn-primary" disabled={!file || busy} onClick={upload}>
-          {busy ? "Reading…" : "Upload and draft"}
-        </button>
       </div>
-      <div className="mt-3 flex flex-wrap items-end gap-2">
-        <Field label="…or describe the change">
+      <Button disabled={!file} loading={busy} onClick={upload}>
+        {busy ? "Reading…" : "Upload and draft"}
+      </Button>
+      <div className="mt-lg flex flex-wrap items-end gap-xs">
+        <Field label="…or describe the change" className="mb-0 min-w-[16rem] flex-1">
           <input
-            className="input w-[32rem] max-w-full"
+            className="input"
             value={message}
             placeholder="e.g. Raise the spot limit to ₹3 lakh from 1 December 2026"
             onChange={(e) => setMessage(e.target.value)}
           />
         </Field>
-        <button className="btn-secondary" disabled={!message.trim() || busy} onClick={fromChat}>
+        <Button variant="secondary" disabled={!message.trim() || busy} onClick={fromChat}>
           Draft from message
-        </button>
+        </Button>
       </div>
-      <Alert>{error}</Alert>
     </div>
   );
 }
@@ -51,19 +71,19 @@ function NewDraft({ onCreated }) {
 function DryRun({ result }) {
   if (!result) return null;
   return (
-    <div className="card">
-      <h3 className="h2 mb-1">Impact on the latest batch ({result.filename})</h3>
-      <p className="mb-2 text-lg font-semibold">{result.headline}</p>
-      <div className="mb-2 flex flex-wrap gap-2 text-sm">
+    <div className="card animate-fade-up">
+      <h3 className="h2 mb-1">Impact on the latest batch (<span className="font-mono text-code">{result.filename}</span>)</h3>
+      <p className="mb-md font-serif text-title-lg text-ink">{result.headline}</p>
+      <div className="mb-md flex flex-wrap gap-md text-body-sm">
         {Object.entries(result.route_deltas).map(([r, n]) => (
-          <span key={r}>
-            <RouteChip route={r} /> {n > 0 ? `+${n}` : n}
+          <span key={r} className="flex items-center gap-xs">
+            <RouteChip route={r} /> <span className="font-medium text-ink">{n > 0 ? "+" : n < 0 ? "−" : ""}<AnimatedNumber value={Math.abs(n)} /></span>
           </span>
         ))}
       </div>
       {result.changes.length > 0 && (
-        <div className="max-h-80 overflow-auto">
-          <table className="min-w-full text-sm">
+        <div className="table-wrap max-h-80">
+          <table className="min-w-full">
             <thead>
               <tr>
                 <th className="th">PR line</th>
@@ -73,13 +93,13 @@ function DryRun({ result }) {
             </thead>
             <tbody>
               {result.changes.map((c) => (
-                <tr key={`${c.pr_no}/${c.pr_line}`} className="border-t">
-                  <td className="td">
+                <tr key={`${c.pr_no}/${c.pr_line}`} className="hover:bg-surface-soft">
+                  <td className="td whitespace-nowrap font-mono text-code">
                     {c.pr_no}/{c.pr_line}
                   </td>
                   {[c.before, c.after].map((x, i) => (
-                    <td key={i} className="td text-xs">
-                      <RouteChip route={x.route} /> {x.supplier_id || x.suggested_supplier_ids} {x.unit_price} · value {x.group_value_inr} · {x.group_id} · v
+                    <td key={i} className="td text-caption font-normal">
+                      <RouteChip route={x.route} /> <span className="font-mono">{x.supplier_id || x.suggested_supplier_ids} {x.unit_price}</span> · value {x.group_value_inr} · <span className="font-mono">{x.group_id}</span> · v
                       {x.policy_version}
                     </td>
                   ))}
@@ -100,6 +120,8 @@ function DraftView({ draft, onChange }) {
   const [jsonError, setJsonError] = React.useState("");
   const [dry, setDry] = React.useState(null);
   const { busy, error, run } = useAsync();
+  const toast = useToast();
+  useErrorToast(error);
   React.useEffect(() => {
     setEff(draft.effective_from || "");
     setJsonText(JSON.stringify(draft.document, null, 2));
@@ -109,7 +131,11 @@ function DraftView({ draft, onChange }) {
   const errors = draft.validation.errors;
   const warnings = draft.validation.warnings;
 
-  const saveDate = () => run(async () => onChange(await api.put(`/policy/${draft.id}`, { effective_from: eff })));
+  const saveDate = () =>
+    run(async () => {
+      onChange(await api.put(`/policy/${draft.id}`, { effective_from: eff }));
+      toast.success("Effective date saved.");
+    });
   const saveJson = () => {
     let doc;
     try {
@@ -119,41 +145,52 @@ function DraftView({ draft, onChange }) {
       setJsonError(`Not valid JSON: ${e.message}`);
       return;
     }
-    run(async () => onChange(await api.put(`/policy/${draft.id}`, { document: doc })));
+    run(async () => {
+      onChange(await api.put(`/policy/${draft.id}`, { document: doc }));
+      toast.success("JSON saved and re-validated.");
+    });
   };
   const dryRun = () => run(async () => setDry(await api.post(`/policy/${draft.id}/dry-run`)));
-  const approve = () => run(async () => onChange(await api.post(`/policy/${draft.id}/approve`, { effective_from: eff || null })));
-  const discard = () => run(async () => onChange(await api.post(`/policy/${draft.id}/discard`)));
+  const approve = () =>
+    run(async () => {
+      onChange(await api.post(`/policy/${draft.id}/approve`, { effective_from: eff || null }));
+      toast.success(`Policy v${draft.version_label} approved and activated.`);
+    });
+  const discard = () =>
+    run(async () => {
+      onChange(await api.post(`/policy/${draft.id}/discard`));
+      toast.info(`Draft v${draft.version_label} discarded.`);
+    });
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-md animate-fade-up">
       <div className="card">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="h1">
+        <div className="flex flex-wrap items-start justify-between gap-md">
+          <h2 className="display-sm flex flex-wrap items-center gap-sm">
             v{draft.version_label} <StatusChip status={draft.status} />
           </h2>
           {isDraft && (
-            <div className="flex items-end gap-2">
-              <Field label="Effective from" hint={draft.needs_effective_date ? draft.question : ""}>
-                <input type="date" className="input" value={eff} onChange={(e) => setEff(e.target.value)} />
+            <div className="flex flex-wrap items-end gap-xs">
+              <Field label="Effective from" hint={draft.needs_effective_date ? draft.question : ""} error={!eff && draft.needs_effective_date ? "Required to approve" : ""} className="mb-0">
+                <input type="date" className={`input ${!eff && draft.needs_effective_date ? "input-error" : ""}`} value={eff} onChange={(e) => setEff(e.target.value)} />
               </Field>
-              <button className="btn-secondary mb-2" disabled={busy || !eff || eff === draft.effective_from} onClick={saveDate}>
+              <Button variant="secondary" disabled={busy || !eff || eff === draft.effective_from} onClick={saveDate}>
                 Set date
-              </button>
-              <button className="btn-secondary mb-2" disabled={busy} onClick={dryRun}>
+              </Button>
+              <Button variant="secondary" disabled={busy} onClick={dryRun}>
                 Dry run
-              </button>
-              <button className="btn-primary mb-2" disabled={busy || errors.length > 0 || !eff} onClick={approve} title="Needs no errors and an effective date">
+              </Button>
+              <Button disabled={busy || errors.length > 0 || !eff} onClick={approve} title="Needs no errors and an effective date">
                 Approve and activate
-              </button>
-              <button className="btn-danger mb-2" disabled={busy} onClick={discard}>
+              </Button>
+              <Button variant="danger" disabled={busy} onClick={discard}>
                 Discard
-              </button>
+              </Button>
             </div>
           )}
         </div>
         {draft.reader && (
-          <p className="text-xs text-slate-500">
+          <p className="mt-2 text-caption font-normal text-muted">
             Read by {draft.reader.mode === "llm" ? "AI (OpenRouter)" : "the rule-based reader"}
             {draft.reader.llm_error ? ` (AI unavailable: ${draft.reader.llm_error})` : ""}
             {draft.source_filename ? ` from ${draft.source_filename}` : ""}.
@@ -164,44 +201,46 @@ function DraftView({ draft, onChange }) {
         )}
         {errors.length > 0 && <Alert>Validation errors:{"\n"}{errors.map((e) => `${e.path}: ${e.message}`).join("\n")}</Alert>}
         {warnings.length > 0 && <Alert kind="warning">Warnings:{"\n"}{warnings.map((e) => `${e.path}: ${e.message}`).join("\n")}</Alert>}
-        <Alert>{error}</Alert>
       </div>
-      <div className="flex gap-1">
-        {[["summary", "What changes"], ["diff", "Structural diff"], ["json", isDraft ? "Edit JSON" : "JSON"]].map(([k, l]) => (
-          <button key={k} className={tab === k ? "btn-primary" : "btn-secondary"} onClick={() => setTab(k)}>
-            {l}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: "summary", label: "What changes" },
+          { id: "diff", label: "Structural diff" },
+          { id: "json", label: isDraft ? "Edit JSON" : "JSON" },
+        ]}
+      />
       {tab === "summary" && (
         <div className="card">
           {draft.diff.bullets.length ? (
-            <ul className="list-disc pl-5 text-sm">
+            <ul className="stagger list-disc space-y-1 pl-5 text-body-sm">
               {draft.diff.bullets.map((b, i) => (
-                <li key={i}>{b}</li>
+                <li key={i} style={{ "--i": Math.min(i, 10) }}>{b}</li>
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-slate-500">No differences from the base version.</p>
+            <EmptyState glyph="check" title="No differences" body="This version matches its base version." />
           )}
         </div>
       )}
       {tab === "diff" && (
-        <pre className="card max-h-[60vh] overflow-auto text-xs">{JSON.stringify(draft.diff.structural, null, 2)}</pre>
+        <pre className="card-dark max-h-[60vh] overflow-auto font-mono text-code">{JSON.stringify(draft.diff.structural, null, 2)}</pre>
       )}
       {tab === "json" && (
         <div className="card">
           <textarea
-            className="input h-[60vh] w-full font-mono text-xs"
+            className={`input h-[60vh] w-full font-mono text-code ${jsonError ? "input-error" : ""}`}
             value={jsonText}
             readOnly={!isDraft}
+            spellCheck={false}
             onChange={(e) => setJsonText(e.target.value)}
           />
-          {jsonError && <Alert>{jsonError}</Alert>}
+          {jsonError && <span className="field-error">{jsonError}</span>}
           {isDraft && (
-            <button className="btn-secondary mt-2" disabled={busy} onClick={saveJson}>
+            <Button variant="secondary" className="mt-md" disabled={busy} onClick={saveJson}>
               Save JSON and re-validate
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -211,9 +250,10 @@ function DraftView({ draft, onChange }) {
 }
 
 export default function PolicyPage() {
-  const [versions, setVersions] = React.useState([]);
+  const [versions, setVersions] = React.useState(null);
   const [current, setCurrent] = React.useState(null);
   const { error, run } = useAsync();
+  useErrorToast(error);
   const loadList = React.useCallback(() => run(async () => setVersions(await api.get("/policy"))), [run]);
   React.useEffect(() => {
     loadList();
@@ -231,28 +271,47 @@ export default function PolicyPage() {
           ? "Check the summary and dry run, then Approve and activate."
           : "Set the effective date, then approve."
       : "Upload an amendment or describe a change to create a draft.";
+  const active = (versions || []).find((v) => v.status === "ACTIVE");
   return (
-    <div>
-      <h1 className="h1 mb-1">Policy versions</h1>
+    <div className="page-enter">
+      <PageHeader
+        title="Policy versions"
+        subtitle="Review amendments as drafts, dry-run them against the latest batch, then activate."
+        actions={
+          active && (
+            <span className="badge-pill">
+              <StatusDot tone="success" pulse /> Active <span className="font-mono">v{active.version_label}</span>
+            </span>
+          )
+        }
+      />
       <NextAction>{next}</NextAction>
-      <Alert>{error}</Alert>
-      <div className="grid gap-3 lg:grid-cols-[18rem_1fr]">
-        <div className="card p-0">
-          <table className="min-w-full">
-            <tbody>
-              {versions.map((v) => (
-                <tr key={v.id} className={`cursor-pointer border-t hover:bg-indigo-50 ${current?.id === v.id ? "bg-indigo-100" : ""}`} onClick={() => open(v.id)}>
-                  <td className="td font-semibold">v{v.version_label}</td>
-                  <td className="td">
+      <div className="grid gap-md lg:grid-cols-[20rem_minmax(0,1fr)]">
+        <div className="card self-start p-0">
+          {versions === null ? (
+            <div className="p-lg">
+              <SkeletonRows rows={4} cols={3} />
+            </div>
+          ) : versions.length === 0 ? (
+            <EmptyState glyph="shield" title="No versions" body="Policy versions will appear here." />
+          ) : (
+            <ul className="stagger divide-y divide-hairline-soft">
+              {versions.map((v, i) => (
+                <li key={v.id} style={{ "--i": Math.min(i, 10) }}>
+                  <button
+                    className={`flex w-full items-center gap-sm px-md py-sm text-left transition-colors duration-100 hover:bg-surface-soft focus-visible:ring-[3px] focus-visible:ring-primary/15 ${current?.id === v.id ? "bg-surface-card" : ""}`}
+                    onClick={() => open(v.id)}
+                  >
+                    <span className="font-mono text-code font-medium text-ink">v{v.version_label}</span>
                     <StatusChip status={v.status} />
-                  </td>
-                  <td className="td text-xs">{v.effective_from ? `from ${v.effective_from}` : "no date"}</td>
-                </tr>
+                    <span className="ml-auto text-caption font-normal text-muted">{v.effective_from ? `from ${v.effective_from}` : "no date"}</span>
+                  </button>
+                </li>
               ))}
-            </tbody>
-          </table>
+            </ul>
+          )}
         </div>
-        <div className="space-y-3">
+        <div className="space-y-md">
           <NewDraft onCreated={changed} />
           {current && <DraftView draft={current} onChange={changed} />}
         </div>

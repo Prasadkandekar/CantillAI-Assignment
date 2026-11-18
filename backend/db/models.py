@@ -264,6 +264,29 @@ class ChatSession(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class Conversation(Base):
+    """A saved chat shown in the sidebar history; owned by one user (email or X-User name)."""
+    __tablename__ = "conversations"
+    __table_args__ = (Index("ix_conversations_owner_updated", "owner", "updated_at"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    owner: Mapped[str] = mapped_column(String(128))
+    title: Mapped[str] = mapped_column(String(120))
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("chat_sessions.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ConversationMessage(Base):
+    __tablename__ = "conversation_messages"
+    __table_args__ = (Index("ix_conv_messages_conv", "conversation_id", "id"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id"))
+    role: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
