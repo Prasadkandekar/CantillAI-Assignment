@@ -39,7 +39,11 @@ async def lifespan(_app):
 
 app = FastAPI(title="Corvo PR-to-PO", version="1.0", lifespan=lifespan)
 
-origins = [o.strip().rstrip("/") for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+DEFAULT_ORIGINS = "http://localhost:5173,https://cantill-ai-ten.vercel.app"
+# CORS_ORIGINS (comma separated) adds more allowed origins on top of the defaults.
+origins = list(dict.fromkeys(
+    o.strip().rstrip("/")
+    for o in (DEFAULT_ORIGINS + "," + os.environ.get("CORS_ORIGINS", "")).split(",") if o.strip()))
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["*"],
                    allow_headers=["*"], expose_headers=["Content-Disposition"])
 
