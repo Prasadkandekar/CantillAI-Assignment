@@ -94,7 +94,7 @@ Data findings quoted here come from checking the kit files (item master, supplie
   - otherwise: in the **batch**, treat as NEW with a flag "low-confidence match, buyer to verify"; in **chat**, ask the user to choose.
   - Numbers and sizes (6308, 50x100, M12x100) must match exactly. A near miss on a size is not a match.
 - **Why:** I prototyped this on the 39 no-code lines. A simple token match found a perfect match for 36 of them. Three more ("brg 6308 ZZ", "monitor 24\"", "hydraulic pump seal kit (hydrax) (repeat)") only fell short because of note words or spelling ("24 inch", "6308-ZZ", "(repeat)"), which the normalisation step handles. Exactly two have no counterpart in the master ("Drinking water purifier 50 LPH", "Ultrasonic thickness gauge"), which agrees with Worked Example 13. Requiring exact sizes avoids the worst mistake: ordering 6205 bearings when 6308 were asked for.
-- **Amended (design):** The score is `rapidfuzz.fuzz.token_set_ratio`. The thresholds (auto-match 90, margin 8, candidate 60, up to 3 candidates), the abbreviations, phrase synonyms and note phrases live in `engine/data/matching_dictionary.json`, so tuning needs no code change. Every size token in the request must appear exactly in the item. An item with an extra size the request lacks can be offered as a candidate but is never auto-matched.
+- **Amended (design):** The score is `rapidfuzz.fuzz.token_set_ratio`. The thresholds (auto-match 90, margin 8, candidate 60, up to 3 candidates), the abbreviations, phrase synonyms and note phrases live in `backend/engine/data/matching_dictionary.json`, so tuning needs no code change. Every size token in the request must appear exactly in the item. An item with an extra size the request lacks can be offered as a candidate but is never auto-matched.
 
 ### D13. Matching confidence vs inventing items
 - **Noticed:** The brief scores "avoid inventing items".
@@ -261,7 +261,7 @@ Data findings quoted here come from checking the kit files (item master, supplie
 - **Noticed:** 3 Blocked (S004, S008, S011) and 2 Inactive (S031, S034). 58 historical POs are from non-Active suppliers.
 - **Decided:** Status is checked in one place (the supplier-eligibility function) used by contracts, the preferred list, PO selection and suggestions. A test asserts no output ever contains one of them.
 - **Why:** The brief penalises it, and a single check point is harder to bypass by accident.
-- **Amended (design):** The allowed statuses are the policy parameter `eligible_supplier_statuses` (["Active"]), checked by `engine/eligibility.py`. A second guard in the output builder raises an internal error if an ineligible supplier ever reaches a row. It is a bug check and never silently filters.
+- **Amended (design):** The allowed statuses are the policy parameter `eligible_supplier_statuses` (["Active"]), checked by `backend/engine/eligibility.py`. A second guard in the output builder raises an internal error if an ineligible supplier ever reaches a row. It is a bug check and never silently filters.
 
 ---
 
@@ -354,7 +354,7 @@ These follow the brief's strict policy-as-data rules, which override APPROACH.md
 - **Why:** A missing number must never satisfy a limit by accident.
 
 ### D54. Fact registry and windows
-- **Decided:** `engine/facts.py` maps each name to one decorated function with a declared type and the parameters it needs. Windows are read only from parameters: `price_history_days` (3.1b), `bought_history_days` (5.3/5.4), `preferred_history_days` (6.1). The validator, the LLM prompt, the diff text and the UI fact list all read the registry.
+- **Decided:** `backend/engine/facts.py` maps each name to one decorated function with a declared type and the parameters it needs. Windows are read only from parameters: `price_history_days` (3.1b), `bought_history_days` (5.3/5.4), `preferred_history_days` (6.1). The validator, the LLM prompt, the diff text and the UI fact list all read the registry.
 - **Why:** Adding a fact is one function, as the brief requires.
 
 ### D55. What the validator rejects and what it only warns about
@@ -395,7 +395,7 @@ These follow the brief's strict policy-as-data rules, which override APPROACH.md
 - **Decided:** The run export is always the engine output of that run. Buyer overrides are shown in the workspace and audit log, not in the scored CSV.
 
 ### D64. PDF-only contracts in the seed
-- **Decided:** RC-2026-031 and RC-2026-033 are seeded from `seed/pdf_contracts.json` (values extracted by the app's own regex extractor and checked by hand), with consumed value 0. A test asserts the extractor still produces exactly these values. Buyers can add more on the contracts screen.
+- **Decided:** RC-2026-031 and RC-2026-033 are seeded from `backend/seed/pdf_contracts.json` (values extracted by the app's own regex extractor and checked by hand), with consumed value 0. A test asserts the extractor still produces exactly these values. Buyers can add more on the contracts screen.
 - **Why:** A fresh `docker compose up` or a hosted rerun gives the same decisions without a manual step.
 
 ### D65. The valuation ladder is data
@@ -407,14 +407,14 @@ These follow the brief's strict policy-as-data rules, which override APPROACH.md
 
 ### D67. LLM client
 - **Decided:** OpenRouter's OpenAI-compatible endpoint is called through `httpx`, with model `OPENROUTER_MODEL`, JSON mode, temperature 0, a 30 s timeout and one retry. The key comes only from the environment (gitignored `.env`) and is never logged. Any failure falls back to the rule-based path, and tests set `LLM_DISABLED=1`.
-- **Amended (design review):** Run outside Docker, nothing would put the `.env` key into the environment, so the fallback would be used silently. `api/main.py` therefore calls `load_dotenv(override=False)` once (python-dotenv), so real environment variables still win. The engine, services and tests never call it. The startup log, `/api/health` and a UI badge say whether the LLM is enabled and which model is used, never the key.
+- **Amended (design review):** Run outside Docker, nothing would put the `.env` key into the environment, so the fallback would be used silently. `backend/api/main.py` therefore calls `load_dotenv(override=False)` once (python-dotenv), so real environment variables still win. The engine, services and tests never call it. The startup log, `/api/health` and a UI badge say whether the LLM is enabled and which model is used, never the key.
 
 ### D68. Rounding
 - **Decided:** The requirement value is quantity × unit price, rounded to paise (half-up) before any limit comparison. Rates are kept at 4 decimal places.
 
 ### D69. Engine text never cites clause numbers
 - **Noticed:** The brief's grep for 14, 7, 24 and so on would also hit comments such as "see 5.7" or "D7", and a rule-id check based on dotted numbers would flag `Decimal("0.01")`.
-- **Decided:** Comments, docstrings and strings in `engine/**/*.py` name policy sections by topic ("supplier eligibility filter"), never by clause number or decision id. Clause numbers come from the JSON at run time. The literal test checks number tokens and comment/string text. The rule-id test checks for strings equal to the policy file's rule ids or clauses, and for any comparison against `.id`, `.clause`, `["id"]` or `["clause"]`.
+- **Decided:** Comments, docstrings and strings in `backend/engine/**/*.py` name policy sections by topic ("supplier eligibility filter"), never by clause number or decision id. Clause numbers come from the JSON at run time. The literal test checks number tokens and comment/string text. The rule-id test checks for strings equal to the policy file's rule ids or clauses, and for any comparison against `.id`, `.clause`, `["id"]` or `["clause"]`.
 - **Why:** The grep then returns zero hits, as the brief asks, and the tests catch real special cases without false alarms.
 
 ### D70. `$param` values are checked like literals

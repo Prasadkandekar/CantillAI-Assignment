@@ -2,9 +2,11 @@
 
 A policy-driven purchase-requisition-to-PO web app for the fictional Corvo Engineering.
 
-- `engine/`: pure Python decision engine. Every limit, window, count, weight and the rule order come from the
-  policy JSON (`engine/policies/policy_v5_0.json`). A new policy version changes decisions with no code change.
-- `api/`, `services/`, `db/`: FastAPI backend, PostgreSQL via SQLAlchemy + Alembic (SQLite for local runs and tests).
+- `backend/`: all backend code. The kit data (`master_data/`, `contracts/`, `pr_batches/`, PDFs) stays at the repo
+  root; the backend reads it from `KIT_ROOT` (default: the parent of `backend/`; `/app` in Docker).
+- `backend/engine/`: pure Python decision engine. Every limit, window, count, weight and the rule order come from the
+  policy JSON (`backend/engine/policies/policy_v5_0.json`). A new policy version changes decisions with no code change.
+- `backend/api/`, `backend/services/`, `backend/db/`: FastAPI backend, PostgreSQL via SQLAlchemy + Alembic (SQLite for local runs and tests).
 - `frontend/`: React (Vite + Tailwind) screens: chat intake, batch upload, buyer workspace, policy amendments,
   contracts, preferred suppliers.
 - LLM: OpenRouter (OpenAI-compatible API, model from `OPENROUTER_MODEL`). Chat extraction, amendment reading and
@@ -29,23 +31,24 @@ policy v5.0 ACTIVE) and starts uvicorn. Compose reads `.env` for variable substi
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
+cd backend
+..\.venv\Scripts\python -m pip install -r requirements.txt
 $env:DATABASE_URL = "sqlite:///./corvo.db"
-.venv\Scripts\python -m alembic upgrade head
-.venv\Scripts\python -m seed.load --if-empty
-.venv\Scripts\python -m uvicorn api.main:app --port 8000
-# second shell
+..\.venv\Scripts\python -m alembic upgrade head
+..\.venv\Scripts\python -m seed.load --if-empty
+..\.venv\Scripts\python -m uvicorn api.main:app --port 8000
+# second shell, from the repo root
 cd frontend; npm install; npm run dev     # http://localhost:5173, /api proxied to :8000
 ```
 
-The backend loads `.env` itself (python-dotenv, real environment variables win). `GET /api/health` reports
+The backend loads the repo-root `.env` itself (python-dotenv, real environment variables win). `GET /api/health` reports
 `llm: enabled` and the model when a key was found; the key is never logged or returned. The UI header shows
 "AI: on/off". Set `LLM_DISABLED=1` to force the rule-based fallbacks.
 
 ## Tests
 
 ```powershell
-.venv\Scripts\python -m pytest
+cd backend; ..\.venv\Scripts\python -m pytest
 ```
 
 No test uses the network (`LLM_DISABLED=1`). API tests build a seeded SQLite database with Alembic.
@@ -89,7 +92,7 @@ frontend.
    (frontend, the backend URL + `/api`) and redeploy the frontend.
 5. Open the frontend URL. Free instances sleep after inactivity; open `/api/health` a minute before a demo.
 
-Railway alternative: create a PostgreSQL plugin, a service from the repo root Dockerfile with `DATABASE_URL`
+Railway alternative: create a PostgreSQL plugin, a service from `backend/Dockerfile` (build context: the repo root) with `DATABASE_URL`
 (Railway's `postgresql://` URL is converted to the psycopg driver automatically), `OPENROUTER_API_KEY`,
 `OPENROUTER_MODEL`, `CORS_ORIGINS`, and a second service from `frontend/` with build arg `VITE_API_BASE=https://<backend>/api`.
 

@@ -14,7 +14,9 @@ services:
       retries: 20
 
   backend:
-    build: .
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://corvo:corvo@db:5432/corvo
       # Read from the gitignored .env in this folder by Compose; never committed.

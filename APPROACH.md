@@ -72,14 +72,17 @@ Employees raise purchase requests (PRs). For each one, Procurement must decide: 
 Folder layout:
 
 ```
-/engine        pure logic: matching, clubbing, valuation, contracts, rules, ranking, consolidation
-/api           FastAPI routers and schemas
-/services      chat, policy reading, batch processing, audit
-/db            models and migrations
-/frontend      React app
-/tests         golden tests from Worked_Examples.pdf, plus unit tests
-/seed          loader for master data, contracts, PO history
-/submission    blind-test CSVs (pushed after 10:00 on Thu)
+/backend               all backend code; run, test and migrate from here (import root)
+  /engine              pure logic: matching, clubbing, valuation, contracts, rules, ranking, consolidation
+  /api                 FastAPI routers and schemas
+  /services            chat, policy reading, batch processing, audit
+  /db                  models and Alembic migrations (db/migrations)
+  /seed                loader for master data, contracts, PO history
+  /tests               golden tests from Worked_Examples.pdf, plus unit tests
+  Dockerfile, alembic.ini, pytest.ini, requirements.txt
+/frontend              React app
+/master_data, /contracts, /pr_batches, *.pdf   kit inputs, read via KIT_ROOT (default: repo root)
+/submission            blind-test CSVs (pushed after 10:00 on Thu)
 ```
 
 ## 5. Data model (main tables)
@@ -147,16 +150,16 @@ Folder layout:
 }
 ```
 
-Rules 5.4 to 5.6 follow the same shape, and each rule carries its clause text from the policy PDF. The complete file is `engine/policies/policy_v5_0.json`. New items (1.2) are the first rule. The order of the `rules` list is the rule order; nothing sorts by id. Every number the engine uses is in `parameters`, and the engine code contains none of them (a test scans every `engine/**/*.py`, including comments and docstrings, and fails on 200000, 500000, 1000000, 14, 7, 24, 365 or 548; engine comments name policy sections by topic, never by clause number, D69).
+Rules 5.4 to 5.6 follow the same shape, and each rule carries its clause text from the policy PDF. The complete file is `backend/engine/policies/policy_v5_0.json`. New items (1.2) are the first rule. The order of the `rules` list is the rule order; nothing sorts by id. Every number the engine uses is in `parameters`, and the engine code contains none of them (a test scans every `backend/engine/**/*.py`, including comments and docstrings, and fails on 200000, 500000, 1000000, 14, 7, 24, 365 or 548; engine comments name policy sections by topic, never by clause number, D69).
 
 ### 6.2 How the engine reads it
 
 - **Condition grammar.** A condition is `{fact, op, value}`, combined with `all` / `any` and nested to any depth. The ops are `eq, ne, lt, lte, gt, gte, in, not_in`. A value is a literal or `"$param_name"`, resolved from `parameters` of the version that applies. Boundaries are ops: spot `lt`, emergency `lte`, RFP `gte`. A null fact never satisfies an ordering op.
 - **Evaluator.** The rules are walked in list order and the first fulfilled match wins. There is no rule-id special case anywhere (a test checks for one). Every condition is evaluated without short-circuit, so the trace shows each fact value, resolved parameter and pass/fail. A rule that matches but whose supplier strategy finds nobody lets the walk continue to the next rule.
-- **Fact registry (`engine/facts.py`).** A dict of name → one small decorated function, with a type and the parameters it needs. The initial set: item_code, item_type, category, uom, plant, urgency, is_emergency, group_value, total_quantity, line_count, requirement_date, need_by_lead_days, department, contract_exists, contract_usable, contract_remaining_ceiling, bought_from_active_365d, last_po_price, preferred_list_size, top_supplier_on_time_pct, top_supplier_quality, is_new_item, plus value_source and requester. Numbers in names are names only: `bought_from_active_365d` reads its window from `bought_history_days`. Adding a fact is one function. The validator, the LLM prompt, the diff text and the UI all read the registry.
+- **Fact registry (`backend/engine/facts.py`).** A dict of name → one small decorated function, with a type and the parameters it needs. The initial set: item_code, item_type, category, uom, plant, urgency, is_emergency, group_value, total_quantity, line_count, requirement_date, need_by_lead_days, department, contract_exists, contract_usable, contract_remaining_ceiling, bought_from_active_365d, last_po_price, preferred_list_size, top_supplier_on_time_pct, top_supplier_quality, is_new_item, plus value_source and requester. Numbers in names are names only: `bought_from_active_365d` reads its window from `bought_history_days`. Adding a fact is one function. The validator, the LLM prompt, the diff text and the UI all read the registry.
 - **Outcomes are data.** `{decision, route, supplier: {strategy, count}}`. `route` is a free string. Strategies form a small registry: `contract` (contract supplier at contract rate), `preferred_first` (rank-1 eligible preferred supplier at its reference price), `suggest` (count: preferred list, then category top-up by `topup_weights`), `none`. Counts may be `$param`.
 - **Supplier eligibility (5.7).** This is the parameter `eligible_supplier_statuses`, applied in one function to contracts, history, preferred lists, top-up and overrides, with a final output guard. No Blocked or Inactive supplier can appear in a PO or a suggestion.
-- **Validator (`engine/policy_validator.py`).** It rejects, with a JSON path and a clear message: unknown fact, unknown op, unknown strategy, undefined `$param`, a `$param` whose value has the wrong type for its fact (for example `"2.5 lakh"` for a value limit), schema errors, op/type mismatches, duplicate rule ids, and bad or missing required parameters (D70, D71). It warns about new routes, unusual decisions, weights not summing to 1, unreachable rules and a missing effective date. A policy that fails is never applied.
+- **Validator (`backend/engine/policy_validator.py`).** It rejects, with a JSON path and a clear message: unknown fact, unknown op, unknown strategy, undefined `$param`, a `$param` whose value has the wrong type for its fact (for example `"2.5 lakh"` for a value limit), schema errors, op/type mismatches, duplicate rule ids, and bad or missing required parameters (D70, D71). It warns about new routes, unusual decisions, weights not summing to 1, unreachable rules and a missing effective date. A policy that fails is never applied.
 - **Every decision records** the fired rule's id, clause and text, the policy version, every evaluated fact and condition, the contract or PO relied on, and the ranking table.
 
 ### 6.3 Why this lets amendments work without code
@@ -172,13 +175,13 @@ Rules 5.4 to 5.6 follow the same shape, and each rule carries its clause text fr
 | Change suggestion counts or eligible supplier statuses | Edit `*_suggestion_count` or `eligible_supplier_statuses`. |
 | Needs a **fact the engine does not compute yet** | The one honest limit. Facts are a registry, so adding one is a small, isolated code change. The policy screen warns "unknown fact" instead of silently ignoring a condition. |
 
-Proof tests (`tests/test_policy_changes.py`) edit only the JSON in memory and rerun the sample batch: spot limit to ₹3 lakh, a CHK1 Safety & PPE rule, emergency limit to ₹7.5 lakh, a CHK1-only emergency limit, clubbing window to 7 days, two rules swapped, an unknown fact rejected, and new ranking weights. None needs an engine change. Each test asserts the exact set of lines that change (D75).
+Proof tests (`backend/tests/test_policy_changes.py`) edit only the JSON in memory and rerun the sample batch: spot limit to ₹3 lakh, a CHK1 Safety & PPE rule, emergency limit to ₹7.5 lakh, a CHK1-only emergency limit, clubbing window to 7 days, two rules swapped, an unknown fact rejected, and new ranking weights. None needs an engine change. Each test asserts the exact set of lines that change (D75).
 
 ### 6.4 Update flow (upload, preview, approve, activate)
 
 1. **Upload** an amendment (PDF, DOCX or text) or **describe** it in chat.
 2. **Read:** the LLM produces a *proposed full policy document* in the JSON schema above, starting from the current active version.
-3. **Validate:** the hand-written validator `engine/policy_validator.py` (no JSON-schema library) checks the document shape, unknown facts, ops and strategies, undefined `$param`s, the type of every literal and `$param` value against its fact, the required parameters, and warns about new routes, unreachable rules and a missing effective date (the app asks for it). A draft with errors can be edited but not approved.
+3. **Validate:** the hand-written validator `backend/engine/policy_validator.py` (no JSON-schema library) checks the document shape, unknown facts, ops and strategies, undefined `$param`s, the type of every literal and `$param` value against its fact, the required parameters, and warns about new routes, unreachable rules and a missing effective date (the app asks for it). A draft with errors can be edited but not approved.
 4. **Diff:** a structural diff of old vs new (parameters changed, rules added, removed, moved or edited), then turned into **plain-language bullets**: "Emergency limit rises from ₹5,00,000 to ₹7,50,000", "New rule: for plant CHK1, Safety & PPE items above ₹1,00,000 go to RFQ".
 5. **Impact preview:** a dry run over the latest batch: "37 of 186 lines would change decision". This catches wrong readings before approval.
 6. **Approve:** a Procurement user approves, and the new version is saved as `ACTIVE` with its `effective_from`. The old version becomes `SUPERSEDED` and is never edited.
@@ -299,7 +302,7 @@ Every action writes to `audit_log` with who, when, before and after. An override
 ## 12. Contracts
 
 - Load the register and the lines (as at 31 Oct).
-- The two contracts that exist only as PDFs (`RC-2026-031`, `RC-2026-033`) are seeded from `seed/pdf_contracts.json` with consumed value 0, so a fresh start gives the same decisions (D64). Those values were produced by the app's own extractor and checked by hand, and a test asserts the extractor still reproduces them.
+- The two contracts that exist only as PDFs (`RC-2026-031`, `RC-2026-033`) are seeded from `backend/seed/pdf_contracts.json` with consumed value 0, so a fresh start gives the same decisions (D64). Those values were produced by the app's own extractor and checked by hand, and a test asserts the extractor still reproduces them.
 - Further PDF contracts are added through **Extract from PDF**: text is read from the PDF, parsed with regular expressions (contract number, supplier ID, dates, ceiling, schedule table), the LLM is the fallback for fields the regex misses, and the buyer **confirms** the extracted values before saving. They start with consumed value 0.
 - I cross-checked the 10 register contracts against their signed PDFs: supplier, dates and ceiling all match.
 

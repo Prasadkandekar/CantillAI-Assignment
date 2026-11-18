@@ -7,11 +7,13 @@ from functools import lru_cache
 from pathlib import Path
 
 from engine import load_batch, load_master, load_policy, raw_line, run_batch, validate_or_raise
+from engine.paths import kit_root
 
-ROOT = Path(__file__).resolve().parent.parent
-POLICY_PATH = ROOT / "engine" / "policies" / "policy_v5_0.json"
+BACKEND = Path(__file__).resolve().parent.parent
+ROOT = kit_root()
+POLICY_PATH = BACKEND / "engine" / "policies" / "policy_v5_0.json"
 BATCH_PATH = ROOT / "pr_batches" / "sample_pr_batch.csv"
-PDF_CONTRACTS = ROOT / "seed" / "pdf_contracts.json"
+PDF_CONTRACTS = BACKEND / "seed" / "pdf_contracts.json"
 BLOCKED_OR_INACTIVE = ("S004", "S008", "S011", "S031", "S034")
 COMPARED_FIELDS = ("decision", "route", "supplier_id", "unit_price", "group_value_inr", "suggested_supplier_ids")
 

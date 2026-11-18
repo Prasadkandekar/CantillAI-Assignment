@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent
-SAMPLE = ROOT / "pr_batches" / "sample_pr_batch.csv"
+BACKEND = Path(__file__).resolve().parent.parent
+SAMPLE = BACKEND.parent / "pr_batches" / "sample_pr_batch.csv"
 HEADERS = {"X-User": "tester", "X-Role": "procurement"}
 BUYER = {"X-User": "buyer1", "X-Role": "buyer"}
 
@@ -26,8 +26,8 @@ def build_seeded_db(path: Path) -> None:
 
     os.environ["DATABASE_URL"] = _sqlite_url(path)
     base.reset()
-    cfg = Config(str(ROOT / "alembic.ini"))
-    cfg.set_main_option("script_location", str(ROOT / "db" / "migrations"))
+    cfg = Config(str(BACKEND / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BACKEND / "db" / "migrations"))
     cfg.attributes["configure_logger"] = False
     command.upgrade(cfg, "head")
     with base.SessionLocal() as s:

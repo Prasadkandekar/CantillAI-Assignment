@@ -5,10 +5,11 @@ import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(override=False)  # local runs: pick up the gitignored .env; real env vars win
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)  # local runs: pick up the gitignored .env; real env vars win
 
 from fastapi import Depends, FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402

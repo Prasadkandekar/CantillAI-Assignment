@@ -8,14 +8,16 @@ import re
 import tokenize
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-ENGINE = ROOT / "engine"
+BACKEND = Path(__file__).resolve().parent.parent
+ENGINE = BACKEND / "engine"
 POLICY_NUMBERS = {200000, 500000, 1000000, 14, 7, 24, 365, 548}
 POLICY_NUMBER_RE = re.compile(r"\b(200000|500000|1000000|14|7|24|365|548)\b")
 
 
 def engine_files():
-    return sorted(ENGINE.rglob("*.py"))
+    files = sorted(ENGINE.rglob("*.py"))
+    assert len(files) > 0, f"no engine sources found under {ENGINE}"
+    return files
 
 
 def string_constants(tree):

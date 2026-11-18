@@ -10,8 +10,7 @@ from datetime import date
 from pathlib import Path
 
 from . import load_batch, load_master, load_policy, rows_to_csv, run_batch, validate
-
-ROOT = Path(__file__).resolve().parent.parent
+from .paths import BACKEND_DIR, kit_root
 
 
 def _cmd_run(args) -> int:
@@ -57,8 +56,8 @@ def main(argv=None) -> int:
     r.add_argument("--pin")
     r.add_argument("--as-of")
     r.add_argument("--out")
-    r.add_argument("--data-root", default=str(ROOT))
-    r.add_argument("--pdf-contracts", default=str(ROOT / "seed" / "pdf_contracts.json"))
+    r.add_argument("--data-root", default=str(kit_root()))
+    r.add_argument("--pdf-contracts", default=str(BACKEND_DIR / "seed" / "pdf_contracts.json"))
     r.set_defaults(fn=_cmd_run)
     v = sub.add_parser("validate", help="validate a policy JSON")
     v.add_argument("policy")

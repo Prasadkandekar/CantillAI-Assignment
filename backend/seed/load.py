@@ -15,10 +15,10 @@ from sqlalchemy import func, select
 from db import models as m
 from db.base import SessionLocal
 from engine import load_master, validate
+from engine.paths import BACKEND_DIR, kit_root
 
-ROOT = Path(__file__).resolve().parent.parent
-PDF_CONTRACTS = ROOT / "seed" / "pdf_contracts.json"
-POLICY_FILE = ROOT / "engine" / "policies" / "policy_v5_0.json"
+PDF_CONTRACTS = BACKEND_DIR / "seed" / "pdf_contracts.json"
+POLICY_FILE = BACKEND_DIR / "engine" / "policies" / "policy_v5_0.json"
 SEED_USER = "seed"
 
 
@@ -26,8 +26,8 @@ def is_empty(session) -> bool:
     return session.scalar(select(func.count()).select_from(m.PolicyVersion)) == 0
 
 
-def seed(session, root: Path = ROOT) -> dict:
-    master = load_master(root, PDF_CONTRACTS)
+def seed(session, root: Path | None = None) -> dict:
+    master = load_master(root or kit_root(), PDF_CONTRACTS)
     pdf_files = {d["contract_id"]: d.get("pdf_filename") for d in json.loads(PDF_CONTRACTS.read_text("utf-8"))}
     session.add_all(m.Plant(plant=k, name=v) for k, v in master.plants.items())
     session.add_all(m.Item(item_code=i.item_code, description=i.description, uom=i.uom, category=i.category,

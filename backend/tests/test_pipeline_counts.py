@@ -3,7 +3,7 @@ import subprocess
 import sys
 
 from engine import rows_to_csv
-from tests.helpers import BATCH_PATH, POLICY_PATH, ROOT
+from tests.helpers import BACKEND, BATCH_PATH, POLICY_PATH
 
 COLUMNS = ["pr_no", "pr_line", "resolved_item_code", "group_id", "po_id", "decision", "route", "supplier_id",
            "unit_price", "group_value_inr", "suggested_supplier_ids", "policy_version", "reason"]
@@ -51,13 +51,13 @@ def test_every_decision_records_rule_and_facts(baseline):
 def test_cli_run(tmp_path):
     out = tmp_path / "out.csv"
     proc = subprocess.run([sys.executable, "-m", "engine", "run", "--batch", str(BATCH_PATH), "--policy",
-                           str(POLICY_PATH), "--out", str(out)], cwd=ROOT, capture_output=True, text=True)
+                           str(POLICY_PATH), "--out", str(out)], cwd=BACKEND, capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
     assert len(out.read_text(encoding="utf-8").splitlines()) == 187
 
 
 def test_cli_validate():
-    proc = subprocess.run([sys.executable, "-m", "engine", "validate", str(POLICY_PATH)], cwd=ROOT,
+    proc = subprocess.run([sys.executable, "-m", "engine", "validate", str(POLICY_PATH)], cwd=BACKEND,
                           capture_output=True, text=True)
     assert proc.returncode == 0
     assert "0 errors, 0 warnings" in proc.stdout
