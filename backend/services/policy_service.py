@@ -97,7 +97,7 @@ def create_draft(session, text: str, *, user: str, role: str, filename: str | No
     doc["effective_from"] = eff.isoformat() if eff else None
     validation = _validation(session, doc)
     validation["reader"] = {"mode": res.mode, "unrecognised": res.unrecognised, "applied": res.applied,
-                            "llm_error": res.llm_error}
+                            "llm_error": res.llm_error, "informational": res.informational, "kind": res.kind}
     row = m.PolicyVersion(version_label=label, status=m.DRAFT, effective_from=eff, document=doc,
                           source_text=text[:200_000], source_filename=filename, base_version_id=base_row.id,
                           validation=validation, created_by=user)

@@ -64,7 +64,8 @@ def _parse(content: str) -> dict:
     return value
 
 
-def complete_json(system: str, user: str, schema_hint: str = "", *, max_tokens: int = 2000) -> dict:
+def complete_json(system: str, user: str, schema_hint: str = "", *, max_tokens: int = 2000,
+                  timeout: float | None = None) -> dict:
     enabled, reason = status()
     if not enabled:
         raise LLMUnavailable(reason)
@@ -87,7 +88,7 @@ def complete_json(system: str, user: str, schema_hint: str = "", *, max_tokens: 
     for attempt in range(2):
         started = time.monotonic()
         try:
-            resp = httpx.post(url, headers=headers, json=body, timeout=TIMEOUT_SECONDS)
+            resp = httpx.post(url, headers=headers, json=body, timeout=timeout or TIMEOUT_SECONDS)
         except httpx.HTTPError as exc:
             last_reason = type(exc).__name__
             log.warning("LLM call failed model=%s reason=%s latency=%.1fs", model(), last_reason,

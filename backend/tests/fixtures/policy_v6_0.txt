@@ -1,0 +1,96 @@
+Corvo Engineering Pvt Ltd: Procurement Policy (PR to PO)
+Document CORVO-PROC-POL-04 · Version 6.0 · Effective 1 November 2026 · Supersedes Version 5.0 · Owner:
+Head of Procurement · Applies to plants PUN1 (Bhosari) and CHK1 (Chakan)
+This policy decides what happens to every purchase requisition (PR) line raised in Corvo: whether
+Procurement may place a purchase order (PO) directly, or must first run a sourcing event to get quotes. All
+values are in INR, excluding GST.
+1. Identifying the item
+1.1 Every PR line must be matched to an item in the item master. If the requester gave an item
+code, use it. If not, match the description to the item master (requesters often use short forms,
+e.g. "brg 6205 2rs" for Ball bearing 6205-2RS).
+1.2 A line that matches no item master item is a new item. It always goes to sourcing (route
+NEW_ITEM_SOURCING), is never clubbed with other lines, and is valued at quantity × the
+requester's estimated unit price.
+2. Clubbing requirements (no splitting)
+2.1 Splitting a requirement into several small PRs to stay under a limit is not allowed. Procurement
+must therefore treat similar PR lines as one requirement and apply every limit in this policy to
+the requirement's total value.
+2.2 Take PR lines in order of creation time (then PR number, then line number). A line joins an
+existing requirement when it is for the same item, for the same plant, was created within 10
+calendar days of the requirement's first line, and its need-by date is within 5 days (either side) of
+the first line's need-by date. Otherwise it starts a new requirement. If it could join more than one,
+it joins the earliest.
+2.3 The requirement date is the creation date of its first line. Contract validity and purchase history
+are checked as of this date. If any line in the requirement is marked Emergency, the requirement
+is an emergency.
+3. Valuing a requirement
+3.1 Requirement value = total quantity × unit price, where the unit price is the first of: (a) the rate of
+the contract that will be used (4.3), or, if every applicable contract is out of ceiling, the lowest
+applicable contract rate; (b) the price on the most recent PO for the item in the 365 days before
+the requirement date; (c) the item master standard price.
+4. Contracts
+4.1 A rate contract applies to a requirement if the contract covers the item, the requirement date
+falls between the contract's start and end dates (inclusive), and the contract supplier is Active in
+the supplier master.
+4.2 A contract can be used only while it has ceiling left: consumed value + this requirement's value
+(at the contract rate) must not exceed the contract value ceiling. Requirements consume ceiling
+in order of requirement date. Consumed values in the register are as at its last update; contracts
+signed after that update start at zero.
+4.3 If more than one contract applies, use the one with the lowest rate that still has enough ceiling.
+4.4 The contract register is updated monthly. Contracts signed after the last update exist only as
+signed PDF copies, and are binding from their start date.
+Corvo Engineering · Procurement Policy v6.0 · page 1 of 3
+5. Decision rules
+Apply the rules in this order. The first rule that fits decides the outcome.
+# When Outcome Route Supplier and price
+5.1 The item type is Capex Sourcing CAPEX_SOURCING Suggest 5 suppliers (6.4).
+request Needs capex approval.
+5.2 A contract can be used (4.1 to 4.3) PO CONTRACT_PO Contract supplier at
+contract rate
+5.3 The item type is Service and the Sourcing RFQ Suggest 4 suppliers (6.4)
+value is ₹1,00,000 or more request
+5.4 Emergency, the item was bought PO EMERGENCY_PO 1st preferred supplier
+from an Active supplier in the last (section 6) at its reference
+365 days, and the value is ≤ price
+₹7,50,000 (plant PUN1) or ≤
+₹3,00,000 (plant CHK1)
+5.5 Value below ₹3,00,000, and the item PO SPOT_PO 1st preferred supplier at its
+was bought from an Active supplier in reference price
+the last 365 days
+5.6 Value below ₹15,00,000 (including Sourcing RFQ Suggest 4 suppliers (6.4)
+small items never bought in the last request
+365 days)
+5.7 Value ₹15,00,000 or more Sourcing RFP Suggest 5 suppliers (6.4)
+request
+5.8 Blocked or Inactive suppliers must never receive a PO or be suggested for a sourcing event.
+6. Preferred supplier list
+Procurement keeps a preferred supplier list for every item, built automatically from purchase history and
+contracts and recalculated as of each requirement date.
+6.1 Who is on the list: every Active supplier that has either (a) at least one PO for the item in the 365
+days before the date, or (b) a contract covering the item that started on or before the date (even
+if it has since expired).
+6.2 Ranking: rank the suppliers on the list so that the best choice for a direct PO comes first.
+Procurement looks at: how often we have bought the item from them, how recently, whether
+they have held a contract for the item, and their on-time delivery and quality record.
+Procurement leaves the exact weighting to the system design, but it must be consistent,
+explainable to a buyer, and recorded. The top supplier is the 1st preferred supplier.
+6.3 Reference price: the price on that supplier's most recent PO for the item in the 365 days; if it has
+none, the rate in its most recent contract for the item.
+6.4 Suggesting suppliers for sourcing: take the preferred list in order. If it has fewer suppliers than
+needed (4 or 5), add other Active suppliers that list the item's category in the supplier master,
+best delivery and quality record first. New items get no suggestions: the buyer finds suppliers.
+7. Placing purchase orders (consolidation)
+7.1 To reduce the number of POs, requirements that end in a PO are combined into one PO with
+several lines when they have the same supplier, the same plant and the same route, and were
+raised within 48 hours of the first requirement on that PO (measured from the creation time of
+each requirement's first line).
+7.2 Take requirements in order of creation time. A requirement joins the earliest open PO it qualifies
+for; otherwise it starts a new PO. Sourcing requests are never combined.
+Corvo Engineering · Procurement Policy v6.0 · page 2 of 3
+8. Record keeping
+8.1 Every decision must record the policy clause applied, and the contract or PO it relied on. A buyer
+may override a decision only with a written reason, which is kept with the original decision.
+9. Transition
+9.1 This version applies to every requirement whose requirement date is on or after 1 November
+2026. Requirements dated earlier remain under Version 5.0.
+Corvo Engineering · Procurement Policy v6.0 · page 3 of 3
