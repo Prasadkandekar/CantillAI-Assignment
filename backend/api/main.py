@@ -67,7 +67,7 @@ async def _unhandled(request: Request, exc: Exception):
 @app.get("/api/health")
 def health(db=Depends(get_db)):
     enabled, _ = llm.status()
-    body = {"status": "ok", "db": "ok", "active_policy": None,
+    body = {"status": "ok", "db": "ok", "db_engine": db.get_bind().dialect.name, "active_policy": None,
             "llm": "enabled" if enabled else "disabled", "llm_model": llm.model()}
     try:
         db.execute(text("SELECT 1"))

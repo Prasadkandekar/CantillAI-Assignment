@@ -2,9 +2,15 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+
+# Every entry point (uvicorn, alembic, seed.load, tests) reads the gitignored repo-root .env,
+# so DATABASE_URL (Neon) is picked up everywhere. Real environment variables still win.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
 DEFAULT_URL = "sqlite:///./corvo.db"
 
