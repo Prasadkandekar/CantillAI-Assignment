@@ -83,14 +83,15 @@ frontend.
 
 1. Push this repository to GitHub (the kit data folders are already tracked; `.env` and `open-router.txt` are not).
 2. In Render: New > Blueprint, pick the repository, apply.
-3. Set `OPENROUTER_API_KEY` on `corvo-backend` (it is `sync: false`, so Render asks for it).
+3. Set `OPENROUTER_API_KEY` on `corvo-backend` (it is `sync: false`, so Render asks for it). `OPENROUTER_MODEL`
+   defaults to `openai/gpt-4o-mini` in `render.yaml`; change it in the service's Environment tab if you want another model.
 4. If Render gives the services different URLs, update `CORS_ORIGINS` (backend) and `VITE_API_BASE`
    (frontend, the backend URL + `/api`) and redeploy the frontend.
 5. Open the frontend URL. Free instances sleep after inactivity; open `/api/health` a minute before a demo.
 
 Railway alternative: create a PostgreSQL plugin, a service from the repo root Dockerfile with `DATABASE_URL`
 (Railway's `postgresql://` URL is converted to the psycopg driver automatically), `OPENROUTER_API_KEY`,
-`CORS_ORIGINS`, and a second service from `frontend/` with build arg `VITE_API_BASE=https://<backend>/api`.
+`OPENROUTER_MODEL`, `CORS_ORIGINS`, and a second service from `frontend/` with build arg `VITE_API_BASE=https://<backend>/api`.
 
 ## Identity
 

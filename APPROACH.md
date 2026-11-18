@@ -327,11 +327,11 @@ Every action writes to `audit_log` with who, when, before and after. An override
 4. Export the preferred supplier lists as of the date given.
 5. Copy the three CSVs into `submission/`, push before 12:00. Nothing else changes.
 
-## 16. AI tools used (edit to match reality)
+## 16. AI tools used
 
-- **Coding help:** an AI coding assistant for boilerplate, tests and refactors. I reviewed every part, and I can explain and change any of it.
-- **Inside the app:** an LLM accessed through **OpenRouter** (model set by `OPENROUTER_MODEL`) for (a) chat intake, extracting structured fields, and (b) reading policy and contract documents into structured JSON. It never decides routes, prices or suppliers.
-- **Fallbacks:** rule-based parsing for chat, regex parsing for contracts, so the app still works if the API is down.
+- **Building the app:** Kiro, an AI coding agent, wrote the design notes, implementation plan, engine, API, frontend, tests, Docker/Render files and these docs. It ran as a multi-step workflow (design, design review, engine build, engine review, app build, app review, final verification), and AI review steps checked each stage against the brief. The evidence is in `.agents/tasks/cantill-pr-to-po/`. A human should read the code before presenting it as reviewed by hand.
+- **Inside the app:** an LLM reached through **OpenRouter** (model set by `OPENROUTER_MODEL`, default `openai/gpt-4o-mini`) does three jobs: (a) extracting structured fields in chat intake, (b) turning a policy amendment into a policy JSON draft, which the validator then checks, and (c) filling contract-PDF fields that the regex parser missed. It never decides routes, prices or suppliers. The engine does that from the policy JSON.
+- **Fallbacks:** rule-based parsing for chat and amendments and regex parsing for contracts, so the app still works with no key or when the API is down. The automated tests and the recorded verification runs used `LLM_DISABLED=1`, so they exercise the fallbacks, not live OpenRouter calls.
 
 ## 17. Known limitations
 
