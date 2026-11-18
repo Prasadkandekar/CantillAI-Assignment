@@ -18,7 +18,7 @@ class ContractLedger:
         self.debits: list[tuple[str, str, Decimal]] = []
 
     def remaining(self, contract_id: str) -> Decimal:
-        return self._contracts[contract_id].value_cap - self.consumed[contract_id]
+        return quantize(self._contracts[contract_id].value_cap - self.consumed[contract_id])
 
     def debit(self, contract_id: str, amount: Decimal, group_id: str = "") -> None:
         self.consumed[contract_id] += amount

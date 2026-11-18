@@ -7,8 +7,8 @@ from __future__ import annotations
 from .conditions import evaluate, jsonable
 from .strategies import STRATEGIES
 
-ALWAYS_SHOWN_FACTS = ("group_value", "total_quantity", "line_count", "requirement_date",
-                      "is_emergency", "contract_usable")
+ALWAYS_SHOWN_FACTS = ("group_value", "value_source", "total_quantity", "line_count", "requirement_date",
+                      "is_emergency", "contract_exists", "contract_usable", "contract_remaining_ceiling")
 
 
 def walk_rules(policy, ctx):

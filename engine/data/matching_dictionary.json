@@ -4,19 +4,11 @@
     "brgs": "bearing",
     "hyd": "hydraulic",
     "pneu": "pneumatic",
-    "pneum": "pneumatic",
-    "cyl": "cylinder",
-    "elec": "electric",
-    "sol": "solenoid",
-    "mtr": "motor",
-    "ss": "ss",
-    "ms": "ms",
-    "qty": "quantity"
+    "cyl": "cylinder"
   },
   "phrase_synonyms": {
     "welding rod": "welding electrode",
-    "welding rods": "welding electrode",
-    "hand gloves": "hand gloves"
+    "welding rods": "welding electrode"
   },
   "note_phrases": {
     "as per sample": "as_per_sample",
