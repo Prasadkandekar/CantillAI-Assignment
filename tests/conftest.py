@@ -4,6 +4,7 @@ os.environ["LLM_DISABLED"] = "1"
 
 import pytest  # noqa: E402
 
+from tests.api_client import client, seeded_template  # noqa: E402,F401  (API fixtures)
 from tests.helpers import load_doc, master_data, run, sample_lines  # noqa: E402
 
 
