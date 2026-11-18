@@ -1,22 +1,13 @@
-# Backend: FastAPI + engine. Runs migrations and seeds an empty database on start.
-# Build context is the repo root (docker-compose.yml / render.yaml) so the kit data can be copied in.
+# Backend: FastAPI + engine. Runs migrations on start and seeds an empty database.
+# Build context is the backend/ folder (Render: Root Directory = backend, Dockerfile Path = ./Dockerfile).
+# Local: docker build -t corvo-backend backend
+# The kit data (master_data/contracts/pr_batches) is NOT in the image: the database (Neon) is seeded once
+# from a machine that has the CSVs, so `seed.load --if-empty` is a no-op here.
 FROM python:3.12-slim
-
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 KIT_ROOT=/app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app/backend
-
-COPY backend/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-COPY backend/engine ./engine
-COPY backend/api ./api
-COPY backend/services ./services
-COPY backend/db ./db
-COPY backend/seed ./seed
-COPY backend/alembic.ini .
-# COPY master_data /app/master_data
-# COPY contracts /app/contracts
-# COPY pr_batches /app/pr_batches
-
+COPY . .
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && python -m seed.load --if-empty && uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
