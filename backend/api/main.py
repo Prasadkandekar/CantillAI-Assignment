@@ -39,7 +39,7 @@ async def lifespan(_app):
 
 app = FastAPI(title="Corvo PR-to-PO", version="1.0", lifespan=lifespan)
 
-origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+origins = [o.strip().rstrip("/") for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["*"],
                    allow_headers=["*"], expose_headers=["Content-Disposition"])
 
