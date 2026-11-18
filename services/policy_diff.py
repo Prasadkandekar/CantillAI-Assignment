@@ -40,17 +40,37 @@ def _lcs(a: list, b: list) -> list:
     return out
 
 
+def _section(doc: dict, key: str) -> dict:
+    """A dict-valued section, or {} when the document has the wrong shape (the validator reports it)."""
+    value = doc.get(key) if isinstance(doc, dict) else None
+    return value if isinstance(value, dict) else {}
+
+
+def _rule_list(doc: dict) -> list[dict]:
+    """Rules that can be diffed: dict entries with a string id, first occurrence of each id.
+
+    Malformed entries are left to the validator, which reports them; the diff only skips them."""
+    rules = doc.get("rules") if isinstance(doc, dict) else None
+    out, seen = [], set()
+    for r in rules if isinstance(rules, list) else []:
+        if isinstance(r, dict) and isinstance(r.get("id"), str) and r["id"] not in seen:
+            seen.add(r["id"])
+            out.append(r)
+    return out
+
+
 def structural(old: dict, new: dict) -> dict:
-    op, np_ = old.get("parameters", {}), new.get("parameters", {})
+    op, np_ = _section(old, "parameters"), _section(new, "parameters")
     params = {
         "added": {k: np_[k] for k in np_ if k not in op},
         "removed": {k: op[k] for k in op if k not in np_},
         "changed": {k: {"old": op[k], "new": np_[k]} for k in np_ if k in op and op[k] != np_[k]},
     }
-    old_rules = {r.get("id"): r for r in old.get("rules", [])}
-    new_rules = {r.get("id"): r for r in new.get("rules", [])}
-    old_ids = [r.get("id") for r in old.get("rules", [])]
-    new_ids = [r.get("id") for r in new.get("rules", [])]
+    old_list, new_list = _rule_list(old), _rule_list(new)
+    old_rules = {r["id"]: r for r in old_list}
+    new_rules = {r["id"]: r for r in new_list}
+    old_ids = [r["id"] for r in old_list]
+    new_ids = [r["id"] for r in new_list]
     common_old = [i for i in old_ids if i in new_rules]
     common_new = [i for i in new_ids if i in old_rules]
     kept = set(_lcs(common_old, common_new))
@@ -75,7 +95,7 @@ def structural(old: dict, new: dict) -> dict:
     rules = {"added": added, "removed": [{"id": rid, "rule": old_rules[rid]} for rid in old_ids if rid not in new_rules],
              "moved": moved, "edited": edited}
     top = {f: {"old": old.get(f), "new": new.get(f)} for f in TOP_LEVEL_FIELDS if old.get(f) != new.get(f)}
-    meta_old, meta_new = old.get("parameter_meta", {}), new.get("parameter_meta", {})
+    meta_old, meta_new = _section(old, "parameter_meta"), _section(new, "parameter_meta")
     meta = sorted(k for k in set(meta_old) | set(meta_new) if meta_old.get(k) != meta_new.get(k))
     return {"parameters": params, "rules": rules, "top_level": top, "parameter_meta_changed": meta}
 
@@ -83,7 +103,8 @@ def structural(old: dict, new: dict) -> dict:
 # --- plain-language rendering -----------------------------------------------------
 
 def _meta(doc_new: dict, doc_old: dict, name: str) -> dict:
-    return doc_new.get("parameter_meta", {}).get(name) or doc_old.get("parameter_meta", {}).get(name) or {}
+    meta = _section(doc_new, "parameter_meta").get(name) or _section(doc_old, "parameter_meta").get(name)
+    return meta if isinstance(meta, dict) else {}
 
 
 def _unit_for(name: str, meta: dict) -> str:
@@ -136,10 +157,13 @@ def condition_text(node, params: dict) -> str:
         return str(node)
     for key, word in (("all", " and "), ("any", " or ")):
         if key in node:
-            parts = [condition_text(c, params) for c in node[key]]
+            children = node[key] if isinstance(node[key], list) else [node[key]]
+            parts = [condition_text(c, params) for c in children]
             text = word.join(parts)
             return f"({text})" if key == "any" and len(parts) > 1 else text
     fact, op, value = node.get("fact"), node.get("op"), node.get("value")
+    fact = fact if isinstance(fact, str) else str(fact)
+    op = op if isinstance(op, str) else str(op)
     pname = param_name(value)
     if pname is not None:
         value = params.get(pname, value)
@@ -152,8 +176,10 @@ def condition_text(node, params: dict) -> str:
 
 
 def outcome_text(outcome: dict, params: dict) -> str:
-    decision = DECISION_WORDS.get(outcome.get("decision"), outcome.get("decision"))
-    sup = outcome.get("supplier", {})
+    outcome = outcome if isinstance(outcome, dict) else {}
+    decision = outcome.get("decision")
+    decision = DECISION_WORDS.get(decision, decision) if isinstance(decision, str) else decision
+    sup = outcome.get("supplier") if isinstance(outcome.get("supplier"), dict) else {}
     strategy = sup.get("strategy")
     count = sup.get("count")
     pname = param_name(count)
@@ -162,13 +188,13 @@ def outcome_text(outcome: dict, params: dict) -> str:
     supplier = {"contract": "contract supplier at contract rate",
                 "preferred_first": "1st preferred supplier at its reference price",
                 "suggest": f"suggest {count} suppliers",
-                "none": "no supplier"}.get(strategy, f"supplier strategy {strategy}")
+                "none": "no supplier"}.get(str(strategy), f"supplier strategy {strategy}")
     return f"{decision}, route {outcome.get('route')}, {supplier}"
 
 
 def bullets(diff: dict, old: dict, new: dict) -> list[str]:
     out = []
-    params_new = new.get("parameters", {})
+    params_new = _section(new, "parameters")
     for name, ch in diff["parameters"]["changed"].items():
         meta = _meta(new, old, name)
         unit = _unit_for(name, meta)
@@ -204,8 +230,16 @@ def bullets(diff: dict, old: dict, new: dict) -> list[str]:
     top = diff["top_level"]
     if "effective_from" in top:
         new_eff = top["effective_from"]["new"]
-        out.append(f"Effective from {long_date(date.fromisoformat(new_eff))}" if new_eff
-                   else "Effective date not set yet")
+        try:
+            eff = date.fromisoformat(new_eff) if isinstance(new_eff, str) and new_eff else None
+        except ValueError:
+            eff = None
+        if eff is not None:
+            out.append(f"Effective from {long_date(eff)}")
+        elif new_eff:
+            out.append(f"Effective date \"{new_eff}\" is not a valid date")
+        else:
+            out.append("Effective date not set yet")
     if "title" in top:
         out.append(f"Title changes to \"{top['title']['new']}\"")
     return out

@@ -97,6 +97,45 @@ def test_chat_draft_with_effective_date_and_json_edit(client):
     assert client.post(f"/api/policy/{d['id']}/discard", headers=HEADERS).json()["status"] == "DISCARDED"
 
 
+def _malformed_docs(good: dict):
+    rules_obj = copy.deepcopy(good)
+    rules_obj["rules"] = {}
+    rules_str = copy.deepcopy(good)
+    rules_str["rules"].append("not a rule")
+    params_list = copy.deepcopy(good)
+    params_list["parameters"] = [1]
+    meta_list = copy.deepcopy(good)
+    meta_list["parameter_meta"] = []
+    bad_when = copy.deepcopy(good)
+    bad_when["rules"][0]["when"] = {"all": "oops"}
+    bad_when["rules"][0]["outcome"] = "oops"
+    return [rules_obj, rules_str, params_list, meta_list, bad_when]
+
+
+def test_malformed_draft_json_returns_validation_errors_and_stays_editable(client):
+    d = client.post("/api/policy/drafts/from-chat", json={"message": "Raise the spot limit to ₹3 lakh."},
+                    headers=HEADERS).json()
+    good = copy.deepcopy(d["document"])
+    for bad in _malformed_docs(good):
+        r = client.put(f"/api/policy/{d['id']}", json={"document": bad}, headers=HEADERS)
+        assert r.status_code == 200, r.text
+        assert r.json()["validation"]["errors"], bad
+        g = client.get(f"/api/policy/{d['id']}")
+        assert g.status_code == 200, g.text
+        assert g.json()["validation"]["errors"]
+        assert client.post(f"/api/policy/{d['id']}/approve", json={"effective_from": "2026-12-01"},
+                           headers=HEADERS).status_code == 422
+    # a corrected PUT brings the draft back to a clean, diffable state
+    fixed = client.put(f"/api/policy/{d['id']}", json={"document": good}, headers=HEADERS)
+    assert fixed.status_code == 200, fixed.text
+    assert fixed.json()["validation"]["errors"] == []
+    assert any("Spot PO limit" in b for b in fixed.json()["diff"]["bullets"])
+    # a malformed draft can still be discarded
+    client.put(f"/api/policy/{d['id']}", json={"document": _malformed_docs(good)[0]}, headers=HEADERS)
+    dis = client.post(f"/api/policy/{d['id']}/discard", headers=HEADERS)
+    assert dis.status_code == 200 and dis.json()["status"] == "DISCARDED"
+
+
 def test_upload_errors(client):
     assert _upload(client, "x", name="a.exe").status_code == 415
     assert _upload(client, "   ", name="a.txt").status_code == 422
