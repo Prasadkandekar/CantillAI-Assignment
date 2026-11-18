@@ -1,0 +1,16 @@
+# engine
+rapidfuzz>=3
+# backend
+fastapi>=0.115
+uvicorn[standard]
+pydantic>=2
+sqlalchemy>=2.0
+alembic
+psycopg[binary]>=3
+python-dotenv
+httpx
+pdfplumber
+python-docx
+python-multipart
+# tests
+pytest

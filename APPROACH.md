@@ -29,7 +29,7 @@ Employees raise purchase requests (PRs). For each one, Procurement must decide: 
 | Database | **PostgreSQL** (SQLite for quick local tests) | Relational data (items, suppliers, contracts, POs) plus JSONB for policy documents. |
 | ORM / migrations | SQLAlchemy + Alembic | Standard, readable schema. |
 | Frontend | **React + Vite + Tailwind** | Quick to build a chat screen, buyer workspace and policy screen. |
-| LLM | **OpenRouter** (OpenAI-compatible API, model set by `OPENROUTER_MODEL`) with JSON-schema outputs | Used for chat intake and policy reading only. Chat has a rule-based fallback if the API fails. |
+| LLM | **OpenRouter** (OpenAI-compatible API, model set by `OPENROUTER_MODEL`) in JSON mode; every reply is validated in code | Used for chat intake and policy reading only. Chat has a rule-based fallback if the API fails. |
 | PDF reading | `pdfplumber` / `pdftotext`, then LLM to structure | Reads contract PDFs and policy documents. |
 | Fuzzy matching | `rapidfuzz` + abbreviation dictionary | Cheap, explainable item matching with a confidence score. |
 | Packaging | **Docker Compose** | One command: `docker compose up`. |
