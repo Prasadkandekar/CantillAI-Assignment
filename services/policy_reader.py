@@ -177,7 +177,7 @@ class _Fallback:
         params[new_param] = _json_number(amount)
         base_meta = self.doc.get("parameter_meta", {}).get(generic, {})
         self.doc.setdefault("parameter_meta", {})[new_param] = {
-            "clause": f"{base_meta.get('clause', '')} ({plant})".strip(),
+            "clause": base_meta.get("clause", ""),
             "label": f"{base_meta.get('label', generic)} for {plant}", "unit": base_meta.get("unit", "INR")}
         for offset, idx in enumerate(idxs):
             idx += offset
