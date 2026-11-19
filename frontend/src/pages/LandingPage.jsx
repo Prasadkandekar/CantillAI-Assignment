@@ -1,5 +1,6 @@
 import React from "react";
 import { Link, Navigate } from "react-router-dom";
+import { warmUp } from "../api.js";
 import { useAuth } from "../auth/useAuth.js";
 import Icon from "../components/Icon.jsx";
 import SpikeMark, { PageLoader } from "../components/SpikeMark.jsx";
@@ -79,6 +80,9 @@ function Wordmark({ dark = false }) {
 
 export default function LandingPage() {
   const { user, status } = useAuth();
+  React.useEffect(() => {
+    warmUp(); // wake the backend and database while the visitor reads the page
+  }, []);
   if (status === "loading") return <PageLoader />;
   if (user) return <Navigate to="/chat" replace />;
 

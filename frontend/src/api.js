@@ -101,6 +101,15 @@ export const api = {
   },
 };
 
+let warmed = false;
+/** Fire-and-forget ping so a sleeping backend (Render) and database (Neon) wake up while the visitor reads the page.
+ *  /health runs a real DB query. No auth, errors are ignored, and it runs at most once per page load. */
+export function warmUp() {
+  if (warmed) return;
+  warmed = true;
+  fetch(`${BASE}/health`, { method: "GET", cache: "no-store" }).catch(() => {});
+}
+
 export function qs(params) {
   const p = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
